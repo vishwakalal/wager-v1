@@ -19,11 +19,11 @@ npm-workspaces monorepo (Node >= 20):
 
 ```
 packages/shared   # @wager/shared — pure, dependency-free domain logic + types + constants
-apps/api          # NestJS backend (source of truth) — planned, scaffolded per BUILD_PLAN phases
-apps/mobile       # React Native + Expo app — planned
+backend           # @wager/backend — NestJS backend (source of truth), scaffolded per BUILD_PLAN phases
+frontend          # @wager/frontend — React Native + Expo app
 ```
 
-Only `packages/shared` exists so far; `apps/*` are added as the build plan progresses.
+All three workspaces are scaffolded; features are filled in as the build plan progresses.
 
 ## Commands
 

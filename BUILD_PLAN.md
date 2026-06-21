@@ -57,9 +57,8 @@ wager-v1/
 ├─ BUILD_PLAN.md
 ├─ Wager_ProductSpec.md
 ├─ docker-compose.yml        # OPTIONAL local Postgres+Redis (fallback only)
-├─ apps/
-│  ├─ api/                   # NestJS backend (source of truth)
-│  └─ mobile/                # React Native + Expo app
+├─ backend/                  # @wager/backend — NestJS backend (source of truth)
+├─ frontend/                 # @wager/frontend — React Native + Expo app
 └─ packages/
    └─ shared/                # pure TS: domain types + money/line/odds logic + zod schemas
 ```

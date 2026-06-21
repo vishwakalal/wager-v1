@@ -5,7 +5,8 @@
   "description": "Wager — social prediction market for friend groups",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "backend",
+    "frontend"
   ],
   "scripts": {
     "check": "npm run typecheck --workspaces --if-present && npm run test --workspaces --if-present",

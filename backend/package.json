@@ -1,5 +1,5 @@
 {
-  "name": "@wager/api",
+  "name": "@wager/backend",
   "version": "0.1.0",
   "private": true,
   "description": "Wager backend — NestJS, source of truth for all money and timers",

@@ -1,12 +1,12 @@
 // Metro config for using Expo inside an npm-workspaces monorepo.
-// Without this, Metro only looks in apps/mobile/node_modules and can't see
+// Without this, Metro only looks in frontend/node_modules and can't see
 // dependencies hoisted to the repo root, nor watch packages/shared for changes.
 // Reference: https://docs.expo.dev/guides/monorepos/
 const { getDefaultConfig } = require("expo/metro-config");
 const path = require("path");
 
 const projectRoot = __dirname;
-const workspaceRoot = path.resolve(projectRoot, "../..");
+const workspaceRoot = path.resolve(projectRoot, "..");
 
 const config = getDefaultConfig(projectRoot);
 
