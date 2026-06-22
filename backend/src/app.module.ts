@@ -1,7 +1,10 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { HealthController } from "./health/health.controller";
+import { AuthModule } from "./auth/auth.module";
+import { CirclesModule } from "./circles/circles.module";
 import { MoneyModule } from "./money/money.module";
+import { SearchModule } from "./search/search.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
 
@@ -17,6 +20,9 @@ import { RedisModule } from "./redis/redis.module";
     PrismaModule,
     RedisModule,
     MoneyModule,
+    AuthModule,
+    CirclesModule,
+    SearchModule,
   ],
   controllers: [HealthController],
 })

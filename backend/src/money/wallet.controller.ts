@@ -3,10 +3,14 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Post,
+  UseGuards,
 } from "@nestjs/common";
+import type { User } from "@prisma/client";
 import type { Cents } from "@wager/shared";
+import { ClerkAuthGuard } from "../auth/clerk.guard";
+import { PhoneVerifiedGuard } from "../auth/phone-verified.guard";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { WalletService, type WalletBalance } from "./wallet.service";
 
 interface AmountBody {
@@ -17,45 +21,34 @@ interface AmountBody {
 }
 
 /**
- * Wallet API. Auth arrives in Phase 2 — until then the caller identifies the
- * user with an `x-user-id` header (dev stub). Every money-moving endpoint is
- * idempotent when given an `idempotencyKey`.
+ * Wallet API. All endpoints require a verified Clerk session and completed
+ * phone verification (spec §9.2: account must be fully activated).
  */
 @Controller("wallet")
+@UseGuards(ClerkAuthGuard, PhoneVerifiedGuard)
 export class WalletController {
   constructor(private readonly wallets: WalletService) {}
 
   @Get()
-  getBalance(@Headers("x-user-id") userId?: string): Promise<WalletBalance> {
-    return this.wallets.getBalance(this.requireUser(userId));
+  getBalance(@CurrentUser() user: User): Promise<WalletBalance> {
+    return this.wallets.getBalance(user.id);
   }
 
   @Post("deposit")
   deposit(
-    @Headers("x-user-id") userId: string | undefined,
+    @CurrentUser() user: User,
     @Body() body: AmountBody,
   ): Promise<WalletBalance> {
-    return this.wallets.deposit(
-      this.requireUser(userId),
-      body.amount,
-      body.idempotencyKey,
-    );
+    if (!body.amount) throw new BadRequestException("amount is required");
+    return this.wallets.deposit(user.id, body.amount, body.idempotencyKey);
   }
 
   @Post("withdraw")
   withdraw(
-    @Headers("x-user-id") userId: string | undefined,
+    @CurrentUser() user: User,
     @Body() body: AmountBody,
   ): Promise<WalletBalance> {
-    return this.wallets.withdraw(
-      this.requireUser(userId),
-      body.amount,
-      body.idempotencyKey,
-    );
-  }
-
-  private requireUser(userId?: string): string {
-    if (!userId) throw new BadRequestException("missing x-user-id header");
-    return userId;
+    if (!body.amount) throw new BadRequestException("amount is required");
+    return this.wallets.withdraw(user.id, body.amount, body.idempotencyKey);
   }
 }

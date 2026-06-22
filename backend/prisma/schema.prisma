@@ -13,12 +13,24 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  phone     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(cuid())
+  /// Clerk user ID (sub claim from the Clerk JWT).
+  clerkId         String    @unique
+  displayName     String?
+  /// Unique handle chosen during onboarding. Stored lowercase. Required before
+  /// the account is considered fully activated (alongside phone verification).
+  username        String?   @unique
+  /// Null until the user completes SMS OTP verification (spec §9.2).
+  phone           String?   @unique
+  phoneVerified   Boolean   @default(false)
+  phoneVerifiedAt DateTime?
+  /// Non-null when the account has been soft-deleted (spec §9.5).
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  wallet Wallet?
+  wallet      Wallet?
+  memberships CircleMembership[]
 
   @@map("users")
 }
@@ -89,4 +101,49 @@ model LedgerEntry {
 enum Bucket {
   AVAILABLE
   HELD
+}
+
+// ─── Circles ────────────────────────────────────────────────────────────────
+
+/// A persistent, invite-only group within which bets are created (spec §2.1).
+model Circle {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships CircleMembership[]
+
+  @@map("circles")
+}
+
+enum MemberRole {
+  CREATOR
+  MEMBER
+}
+
+/// PENDING = invited, awaiting creator approval.
+/// APPROVED = active member; joinedAt is set at approval time.
+enum MemberStatus {
+  PENDING
+  APPROVED
+}
+
+model CircleMembership {
+  id       String       @id @default(cuid())
+  circleId String
+  userId   String
+  role     MemberRole   @default(MEMBER)
+  status   MemberStatus @default(PENDING)
+  /// Timestamp when the member was approved — used to detect mid-bet joiners
+  /// (spec §2.1: joiners after a bet's staking window can't participate).
+  joinedAt DateTime?
+  createdAt DateTime    @default(now())
+
+  circle Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([circleId, userId])
+  @@index([userId])
+  @@map("circle_memberships")
 }
