@@ -354,7 +354,7 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
 Each phase is checked off only when its **acceptance criteria** pass. Update the status
 line at the top and tick the box when done.
 
-- [ ] Phase 0 — Foundations & scaffolding
+- [x] Phase 0 — Foundations & scaffolding  *(ESLint/Prettier lint tooling deferred to Phase 12)*
 - [ ] Phase 1 — Data model & money ledger
 - [ ] Phase 2 — Auth & accounts
 - [ ] Phase 3 — Circles

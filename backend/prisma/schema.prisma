@@ -1,0 +1,22 @@
+// Wager data model. This is the schema source of truth for the backend.
+// The full domain model (circles, bets, stakes, ledger, jobs) is built out
+// across BUILD_PLAN phases; this initial migration establishes connectivity
+// and the User table that auth (phone + OTP, spec §3) builds on.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}

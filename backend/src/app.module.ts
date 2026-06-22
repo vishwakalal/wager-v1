@@ -1,5 +1,8 @@
 import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { HealthController } from "./health/health.controller";
+import { PrismaService } from "./prisma/prisma.service";
+import { RedisService } from "./redis/redis.service";
 
 /**
  * Root module. As the build plan progresses, domain modules (auth, circles,
@@ -7,8 +10,11 @@ import { HealthController } from "./health/health.controller";
  * object per spec §14 ("modular architecture maps to domain objects").
  */
 @Module({
-  imports: [],
+  imports: [
+    // Loads backend/.env into process.env (cwd is backend/ when running `dev`).
+    ConfigModule.forRoot({ isGlobal: true }),
+  ],
   controllers: [HealthController],
-  providers: [],
+  providers: [PrismaService, RedisService],
 })
 export class AppModule {}
