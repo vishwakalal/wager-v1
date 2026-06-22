@@ -1,3 +1,7 @@
+# macOS resource fork / metadata files (created when copying to external drives)
+._*
+.DS_Store
+
 # Logs
 logs
 *.log

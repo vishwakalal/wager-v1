@@ -278,8 +278,15 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
 **Goal:** live updates + Stream chat (circle-level + bet-level).
 - Socket.io: live odds, verification alerts, status changes. `ChatProvider` abstraction
   over Stream (free dev tier). Media evidence: client compress, cap video 15s (§15).
+- **Shareable invite links (deferred from Phase 3):** Creator generates a short-lived
+  invite token embedded in a deep link (e.g. `wager://join/{token}`). Anyone with the
+  link is **auto-approved** on use — sharing the link is implicit consent. Needs Expo
+  deep link config (URL scheme, Apple Associated Domains, Android App Links) so it must
+  be built alongside the mobile frontend, not backend-only. Backend: `CircleInviteToken`
+  table + `POST /circles/:id/invite-link` (generate/revoke) + `POST /circles/join/:token`
+  (consume). Frontend: handle the incoming URL and navigate to the join confirmation screen.
 - **Acceptance:** two devices see live verification/odds updates; chat works at both
-  levels; media uploads under cap.
+  levels; media uploads under cap; invite link opens the app and joins the circle in one tap.
 
 ### Phase 10 — Notifications (spec §11, build-order 10–11)
 **Goal:** Expo push + full preference matrix + settings UI.
@@ -356,8 +363,8 @@ line at the top and tick the box when done.
 
 - [x] Phase 0 — Foundations & scaffolding  *(ESLint/Prettier lint tooling deferred to Phase 12)*
 - [x] Phase 1 — Data model & money ledger  *(wallet/ledger live; circles/bets schema follow in their phases)*
-- [ ] Phase 2 — Auth & accounts
-- [ ] Phase 3 — Circles
+- [x] Phase 2 — Auth & accounts
+- [x] Phase 3 — Circles
 - [ ] Phase 4 — Bet creation + line setting
 - [ ] Phase 5 — Staking + parimutuel odds
 - [ ] Phase 6 — Verification engine
