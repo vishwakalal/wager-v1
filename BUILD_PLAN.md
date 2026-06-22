@@ -355,7 +355,7 @@ Each phase is checked off only when its **acceptance criteria** pass. Update the
 line at the top and tick the box when done.
 
 - [x] Phase 0 — Foundations & scaffolding  *(ESLint/Prettier lint tooling deferred to Phase 12)*
-- [ ] Phase 1 — Data model & money ledger
+- [x] Phase 1 — Data model & money ledger  *(wallet/ledger live; circles/bets schema follow in their phases)*
 - [ ] Phase 2 — Auth & accounts
 - [ ] Phase 3 — Circles
 - [ ] Phase 4 — Bet creation + line setting

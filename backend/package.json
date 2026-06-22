@@ -20,6 +20,7 @@
     "@nestjs/platform-express": "^10.4.15",
     "@prisma/client": "^6.19.3",
     "@upstash/redis": "^1.38.0",
+    "@wager/shared": "^0.1.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

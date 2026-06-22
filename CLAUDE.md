@@ -86,8 +86,13 @@ Postgres-backed job table — never trust the client for deadlines or money. See
 - Strict mode with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` is on — array
   access is `T | undefined`, so the `!` non-null assertion appears intentionally after bounds
   are known. Match the surrounding style.
-- ESM throughout: intra-package imports use explicit `.js` extensions (e.g. `./money.js`)
-  even though the source is `.ts`.
+- Module systems differ by workspace, so import style does too:
+  - `packages/shared` — ESM source; intra-package imports use explicit `.js` extensions
+    (e.g. `./money.js`) even though the source is `.ts`. It is compiled to a CommonJS
+    `dist/` (via `tsconfig.build.json`) that the backend consumes; `npm run check` builds
+    it first. Re-run `npm run build -w @wager/shared` after editing shared during backend dev.
+  - `backend` (NestJS) — CommonJS; imports are **extensionless** (e.g. `./prisma/prisma.service`).
+    It imports `@wager/shared` by package name, which resolves to the compiled `dist/`.
 
 ## Environment / two-machine setup
 

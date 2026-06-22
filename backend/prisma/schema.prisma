@@ -1,7 +1,7 @@
 // Wager data model. This is the schema source of truth for the backend.
-// The full domain model (circles, bets, stakes, ledger, jobs) is built out
-// across BUILD_PLAN phases; this initial migration establishes connectivity
-// and the User table that auth (phone + OTP, spec §3) builds on.
+// The full domain model (circles, bets, stakes, jobs) is built out across
+// BUILD_PLAN phases. Phase 1 establishes auth's User and the append-only,
+// double-entry money ledger (Wallet / Transaction / LedgerEntry).
 
 generator client {
   provider = "prisma-client-js"
@@ -18,5 +18,75 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  wallet Wallet?
+
   @@map("users")
+}
+
+/// One wallet per user, plus a single SYSTEM wallet representing money entering
+/// and leaving the platform (the external counterparty for deposits/withdrawals).
+/// Balances are NEVER stored here — they are always derived by summing the
+/// wallet's ledger entries.
+model Wallet {
+  id        String     @id @default(cuid())
+  kind      WalletKind @default(USER)
+  userId    String?    @unique
+  createdAt DateTime   @default(now())
+
+  user    User?         @relation(fields: [userId], references: [id])
+  entries LedgerEntry[]
+
+  @@map("wallets")
+}
+
+enum WalletKind {
+  USER
+  SYSTEM
+}
+
+/// A money operation. Groups the ledger entries it produced (which always sum to
+/// zero). `idempotencyKey` makes deposit/withdraw safe to retry: the same key
+/// never applies twice.
+model Transaction {
+  id             String          @id @default(cuid())
+  type           TransactionType
+  idempotencyKey String?         @unique
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+
+  entries LedgerEntry[]
+
+  @@map("transactions")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  HOLD
+  RELEASE
+  PAYOUT
+}
+
+/// A single append-only posting: a signed cent amount against one wallet bucket.
+/// Rows are never updated or deleted. Sum of all entries across the table is
+/// always exactly zero; a wallet's balance is the sum of its entries per bucket.
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  transactionId String
+  walletId      String
+  bucket        Bucket
+  amount        Int // signed cents
+  createdAt     DateTime @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  wallet      Wallet      @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, bucket])
+  @@index([transactionId])
+  @@map("ledger_entries")
+}
+
+enum Bucket {
+  AVAILABLE
+  HELD
 }

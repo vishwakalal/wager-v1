@@ -74,6 +74,16 @@ Before committing, run from the root:
 npm run check     # typecheck + test across every workspace
 ```
 
+## Working on `packages/shared`
+
+The backend consumes `@wager/shared` as a **compiled** CommonJS build (`dist/`).
+`npm install` and `npm run check` build it for you, but if you edit shared while
+the backend is running, rebuild it so the change is picked up:
+
+```bash
+npm run build -w @wager/shared
+```
+
 ## Useful backend DB commands
 
 ```bash
