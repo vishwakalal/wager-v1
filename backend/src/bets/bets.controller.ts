@@ -16,6 +16,7 @@ import { BetsService } from "./bets.service";
 import { LineService } from "./line.service";
 import { StakingService } from "./staking.service";
 import { VerificationService } from "./verification.service";
+import { DisputeService } from "./dispute.service";
 
 @Controller()
 @UseGuards(ClerkAuthGuard, PhoneVerifiedGuard)
@@ -25,6 +26,7 @@ export class BetsController {
     private readonly line: LineService,
     private readonly staking: StakingService,
     private readonly verification: VerificationService,
+    private readonly disputes: DisputeService,
   ) {}
 
   // ─── Bet CRUD ───────────────────────────────────────────────────────────────
@@ -190,5 +192,47 @@ export class BetsController {
   ) {
     if (!body.choice) throw new BadRequestException('choice is required ("verify" or "deny")');
     return this.verification.castTiebreakerVote(eventId, user.id, body.choice);
+  }
+
+  // ─── Disputes (spec §7.2) ──────────────────────────────────────────────────
+
+  /**
+   * Raise a dispute during the 24-h post-expiration window.
+   * type "add": flag an event that occurred but was never submitted.
+   * type "remove": challenge an already-verified event (requires targetEventId).
+   */
+  @Post("bets/:id/disputes")
+  @HttpCode(200)
+  raiseDispute(
+    @CurrentUser() user: User,
+    @Param("id") betId: string,
+    @Body() body: { type?: string; description?: string; targetEventId?: string },
+  ) {
+    if (!body.type) throw new BadRequestException('type is required ("add" or "remove")');
+    if (!body.description?.trim()) throw new BadRequestException("description is required");
+    return this.disputes.raiseDispute(betId, user.id, body.type, body.description, body.targetEventId);
+  }
+
+  /** List all disputes for a bet (any circle member can view). */
+  @Get("bets/:id/disputes")
+  listDisputes(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.disputes.listDisputes(betId, user.id);
+  }
+
+  /**
+   * Vote on a dispute. inFavor=true supports the dispute; inFavor=false opposes it.
+   * 70%+ in favor → immediately confirmed and the event is added/removed.
+   */
+  @Post("disputes/:disputeId/vote")
+  @HttpCode(200)
+  castDisputeVote(
+    @CurrentUser() user: User,
+    @Param("disputeId") disputeId: string,
+    @Body() body: { inFavor?: boolean },
+  ) {
+    if (body.inFavor === undefined || body.inFavor === null) {
+      throw new BadRequestException("inFavor (boolean) is required");
+    }
+    return this.disputes.castVote(disputeId, user.id, body.inFavor);
   }
 }

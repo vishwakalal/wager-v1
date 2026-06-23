@@ -261,9 +261,12 @@ export class StakingService implements OnModuleInit {
       throw new Error(`bet ${betId} has no activeUntil — cannot advance to ACTIVE`);
     }
 
-    await this.prisma.bet.update({
-      where: { id: betId },
-      data: { status: BetStatus.ACTIVE },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bet.update({
+        where: { id: betId },
+        data: { status: BetStatus.ACTIVE },
+      });
+      await this.scheduler.schedule(JobType.BET_EXPIRE, bet.activeUntil!, { betId }, tx);
     });
 
     this.logger.log(`bet ${betId}: STAKING → ACTIVE (expires ${bet.activeUntil.toISOString()})`);

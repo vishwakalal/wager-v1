@@ -37,6 +37,8 @@ model User {
   stakes               Stake[]
   verificationEvents   VerificationEvent[] @relation("EventSubmitter")
   verificationVotes    VerificationVote[]
+  disputesInitiated    Dispute[]           @relation("DisputeInitiator")
+  disputeVotes         DisputeVote[]
 
   @@map("users")
 }
@@ -195,6 +197,9 @@ model Bet {
   /// Increments each time 50%+ dispute triggers a re-submission round (spec §3.1).
   lineRound   Int         @default(1)
 
+  /// Set at resolution: which side won (null if voided).
+  winSide         StakeSide?
+
   lineRevealedAt  DateTime?
   challengeEndsAt DateTime?
   stakingEndsAt   DateTime?
@@ -211,6 +216,7 @@ model Bet {
   lineDisputeVotes     LineDisputeVote[]
   stakes               Stake[]
   verificationEvents   VerificationEvent[]
+  disputes             Dispute[]
 
   @@index([circleId])
   @@index([creatorId])
@@ -286,6 +292,56 @@ model Stake {
   @@map("stakes")
 }
 
+// ─── Disputes ────────────────────────────────────────────────────────────────
+
+/// Add a missed event or remove a wrongly-verified one during the 24-h window (spec §7.2).
+/// 70% of staked members must vote in favor to CONFIRM. Any PENDING at window close → VOID.
+enum DisputeType {
+  ADD    // flag an event that happened but was never submitted
+  REMOVE // challenge an already-VERIFIED event
+}
+
+enum DisputeStatus {
+  PENDING   // awaiting 70% threshold
+  CONFIRMED // 70%+ in favor; event has already been added/removed
+}
+
+model Dispute {
+  id            String        @id @default(cuid())
+  betId         String
+  initiatorId   String
+  type          DisputeType
+  /// For REMOVE disputes: the VerificationEvent being challenged.
+  targetEventId String?
+  description   String
+  status        DisputeStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  bet         Bet                @relation(fields: [betId], references: [id], onDelete: Cascade)
+  initiator   User               @relation("DisputeInitiator", fields: [initiatorId], references: [id])
+  targetEvent VerificationEvent? @relation("DisputeTarget", fields: [targetEventId], references: [id])
+  votes       DisputeVote[]
+
+  @@index([betId])
+  @@map("disputes")
+}
+
+model DisputeVote {
+  id        String   @id @default(cuid())
+  disputeId String
+  userId    String
+  inFavor   Boolean
+  createdAt DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([disputeId, userId])
+  @@index([disputeId])
+  @@map("dispute_votes")
+}
+
 // ─── Verification ────────────────────────────────────────────────────────────
 
 enum VerificationStatus {
@@ -319,6 +375,7 @@ model VerificationEvent {
   bet       Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
   submitter User @relation("EventSubmitter", fields: [submitterId], references: [id])
   votes     VerificationVote[]
+  disputes  Dispute[] @relation("DisputeTarget")
 
   @@index([betId])
   @@map("verification_events")
