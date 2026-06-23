@@ -29,8 +29,11 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  wallet      Wallet?
-  memberships CircleMembership[]
+  wallet           Wallet?
+  memberships      CircleMembership[]
+  betsCreated      Bet[]              @relation("BetCreator")
+  lineSubmissions  LineSubmission[]
+  lineDisputeVotes LineDisputeVote[]
 
   @@map("users")
 }
@@ -113,6 +116,7 @@ model Circle {
   updatedAt DateTime @updatedAt
 
   memberships CircleMembership[]
+  bets        Bet[]
 
   @@map("circles")
 }
@@ -146,4 +150,141 @@ model CircleMembership {
   @@unique([circleId, userId])
   @@index([userId])
   @@map("circle_memberships")
+}
+
+// ─── Bets ────────────────────────────────────────────────────────────────────
+
+enum BetType {
+  NUMERIC
+  BINARY
+}
+
+enum BetDuration {
+  ONE_DAY
+  ONE_WEEK
+  ONE_MONTH
+}
+
+/// Full lifecycle status for a bet (spec §5, §3, §8).
+/// LINE_SETTING/LINE_CHALLENGE are NUMERIC only; all types pass through STAKING onward.
+enum BetStatus {
+  LINE_SETTING
+  LINE_CHALLENGE
+  STAKING
+  ACTIVE
+  CLOSED
+  RESOLVED
+  VOIDED
+  CANCELLED
+}
+
+/// A wager created within a circle (spec §2.2, §3, §5).
+model Bet {
+  id          String      @id @default(cuid())
+  circleId    String
+  creatorId   String
+  type        BetType
+  duration    BetDuration
+  status      BetStatus   @default(LINE_SETTING)
+  description String
+  /// Set after line reveal for NUMERIC bets; always null for BINARY.
+  line        Decimal?    @db.Decimal(10, 4)
+  /// Increments each time 50%+ dispute triggers a re-submission round (spec §3.1).
+  lineRound   Int         @default(1)
+
+  lineRevealedAt  DateTime?
+  challengeEndsAt DateTime?
+  stakingEndsAt   DateTime?
+  activeUntil     DateTime?
+  closedAt        DateTime?
+  resolvedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  circle           Circle            @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  creator          User              @relation("BetCreator", fields: [creatorId], references: [id])
+  lineSubmissions  LineSubmission[]
+  lineDisputeVotes LineDisputeVote[]
+
+  @@index([circleId])
+  @@index([creatorId])
+  @@index([status])
+  @@map("bets")
+}
+
+/// A single blind line submission from one member for one round (spec §3.1).
+/// Submissions for the current round are hidden until the creator reveals.
+model LineSubmission {
+  id        String   @id @default(cuid())
+  betId     String
+  userId    String
+  value     Decimal  @db.Decimal(10, 4)
+  round     Int
+  createdAt DateTime @default(now())
+
+  bet  Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([betId, userId, round])
+  @@index([betId])
+  @@map("line_submissions")
+}
+
+/// A dispute vote during the LINE_CHALLENGE window (spec §3.1).
+/// If ≥50% of eligible members vote, the line is re-set.
+model LineDisputeVote {
+  id        String   @id @default(cuid())
+  betId     String
+  userId    String
+  round     Int
+  createdAt DateTime @default(now())
+
+  bet  Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([betId, userId, round])
+  @@index([betId])
+  @@map("line_dispute_votes")
+}
+
+// ─── Scheduling engine ───────────────────────────────────────────────────────
+
+/// All timed state-machine transitions live here (spec §2.4).
+/// The worker polls this table every 10 s; transitions are idempotent.
+/// LINE_CHALLENGE_EXPIRE: LINE_CHALLENGE → STAKING after 30 min (Phase 4)
+/// STAKING_CLOSE: STAKING → ACTIVE (Phase 5)
+/// STAKING_WARNING: notification 30 min before staking closes (Phase 10)
+/// BET_EXPIRE: ACTIVE → CLOSED at expiry (Phase 7)
+/// DISPUTE_CLOSE: CLOSED → RESOLVED/VOIDED after 24 h (Phase 7)
+/// DISPUTE_WARNING: notification 2 h before dispute window closes (Phase 10)
+enum JobType {
+  LINE_CHALLENGE_EXPIRE
+  STAKING_CLOSE
+  STAKING_WARNING
+  BET_EXPIRE
+  DISPUTE_CLOSE
+  DISPUTE_WARNING
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model ScheduledJob {
+  id        String    @id @default(cuid())
+  type      JobType
+  runAt     DateTime
+  payload   Json
+  status    JobStatus @default(PENDING)
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, runAt])
+  @@map("scheduled_jobs")
 }

@@ -5,6 +5,8 @@ import { AuthModule } from "./auth/auth.module";
 import { CirclesModule } from "./circles/circles.module";
 import { MoneyModule } from "./money/money.module";
 import { SearchModule } from "./search/search.module";
+import { SchedulerModule } from "./scheduler/scheduler.module";
+import { BetsModule } from "./bets/bets.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
 
@@ -23,6 +25,8 @@ import { RedisModule } from "./redis/redis.module";
     AuthModule,
     CirclesModule,
     SearchModule,
+    SchedulerModule,
+    BetsModule,
   ],
   controllers: [HealthController],
 })

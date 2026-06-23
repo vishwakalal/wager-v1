@@ -365,7 +365,7 @@ line at the top and tick the box when done.
 - [x] Phase 1 — Data model & money ledger  *(wallet/ledger live; circles/bets schema follow in their phases)*
 - [x] Phase 2 — Auth & accounts
 - [x] Phase 3 — Circles
-- [ ] Phase 4 — Bet creation + line setting
+- [x] Phase 4 — Bet creation + line setting
 - [ ] Phase 5 — Staking + parimutuel odds
 - [ ] Phase 6 — Verification engine
 - [ ] Phase 7 — Expiration, disputes & resolution
