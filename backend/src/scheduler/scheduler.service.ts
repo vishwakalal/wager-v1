@@ -3,7 +3,7 @@ import { BetDuration, BetStatus, JobStatus, JobType, Prisma } from "@prisma/clie
 import { STAKING_WINDOW_MS, BET_ACTIVE_MS } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
-type JobPayload = { betId: string };
+type JobPayload = Record<string, string>;
 type JobHandler = (payload: JobPayload) => Promise<void>;
 
 function stakingWindowMs(duration: BetDuration): number {
@@ -114,7 +114,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
 
     // Built-in handlers that don't depend on domain services
     if (type === JobType.LINE_CHALLENGE_EXPIRE) {
-      await this.processLineChallengeExpire(payload.betId);
+      await this.processLineChallengeExpire(payload["betId"] as string);
       return;
     }
 

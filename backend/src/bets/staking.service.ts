@@ -44,8 +44,8 @@ export class StakingService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    this.scheduler.registerHandler(JobType.STAKING_CLOSE, ({ betId }) =>
-      this.closeWindow(betId),
+    this.scheduler.registerHandler(JobType.STAKING_CLOSE, (payload) =>
+      this.closeWindow(payload["betId"] as string),
     );
   }
 

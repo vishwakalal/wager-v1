@@ -31,10 +31,12 @@ model User {
 
   wallet           Wallet?
   memberships      CircleMembership[]
-  betsCreated      Bet[]              @relation("BetCreator")
-  lineSubmissions  LineSubmission[]
-  lineDisputeVotes LineDisputeVote[]
-  stakes           Stake[]
+  betsCreated          Bet[]               @relation("BetCreator")
+  lineSubmissions      LineSubmission[]
+  lineDisputeVotes     LineDisputeVote[]
+  stakes               Stake[]
+  verificationEvents   VerificationEvent[] @relation("EventSubmitter")
+  verificationVotes    VerificationVote[]
 
   @@map("users")
 }
@@ -205,9 +207,10 @@ model Bet {
 
   circle           Circle            @relation(fields: [circleId], references: [id], onDelete: Cascade)
   creator          User              @relation("BetCreator", fields: [creatorId], references: [id])
-  lineSubmissions  LineSubmission[]
-  lineDisputeVotes LineDisputeVote[]
-  stakes           Stake[]
+  lineSubmissions      LineSubmission[]
+  lineDisputeVotes     LineDisputeVote[]
+  stakes               Stake[]
+  verificationEvents   VerificationEvent[]
 
   @@index([circleId])
   @@index([creatorId])
@@ -283,6 +286,63 @@ model Stake {
   @@map("stakes")
 }
 
+// ─── Verification ────────────────────────────────────────────────────────────
+
+enum VerificationStatus {
+  PENDING_VOTE  // voting open
+  TIEBREAKER    // 50/50 tie; 30-min re-vote window open (spec §6.2)
+  VERIFIED      // 50%+ voted verify
+  DENIED        // 50%+ voted deny, or tiebreaker expired still tied
+}
+
+enum VoteChoice {
+  VERIFY
+  DENY
+}
+
+/// A discrete event submitted for verification (a meal, a score, a gym visit).
+/// Staked members vote to VERIFY or DENY; 50%+ decides (spec §6.1).
+model VerificationEvent {
+  id           String             @id @default(cuid())
+  betId        String
+  submitterId  String
+  description  String
+  /// Optional numeric value carried by the event (e.g. exam score = 92).
+  /// Phase 7 uses these for numeric-bet resolution.
+  numericValue Decimal?           @db.Decimal(10, 4)
+  status       VerificationStatus @default(PENDING_VOTE)
+  /// Set when a 50/50 tie opens the tiebreaker window (spec §6.2).
+  tiebreakerEndsAt DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  bet       Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
+  submitter User @relation("EventSubmitter", fields: [submitterId], references: [id])
+  votes     VerificationVote[]
+
+  @@index([betId])
+  @@map("verification_events")
+}
+
+/// One vote per (event, user, round). Round 1 = initial; round 2 = tiebreaker.
+/// Tiebreaker votes are upserted so members can change their vote (spec §6.2).
+model VerificationVote {
+  id                  String     @id @default(cuid())
+  verificationEventId String
+  userId              String
+  choice              VoteChoice
+  round               Int        @default(1)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  event VerificationEvent @relation(fields: [verificationEventId], references: [id], onDelete: Cascade)
+  user  User              @relation(fields: [userId], references: [id])
+
+  @@unique([verificationEventId, userId, round])
+  @@index([verificationEventId])
+  @@map("verification_votes")
+}
+
 // ─── Scheduling engine ───────────────────────────────────────────────────────
 
 /// All timed state-machine transitions live here (spec §2.4).
@@ -290,6 +350,7 @@ model Stake {
 /// LINE_CHALLENGE_EXPIRE: LINE_CHALLENGE → STAKING after 30 min (Phase 4)
 /// STAKING_CLOSE: STAKING → ACTIVE (Phase 5)
 /// STAKING_WARNING: notification 30 min before staking closes (Phase 10)
+/// VERIFICATION_TIEBREAKER_EXPIRE: tiebreaker window → DENIED if still tied (Phase 6)
 /// BET_EXPIRE: ACTIVE → CLOSED at expiry (Phase 7)
 /// DISPUTE_CLOSE: CLOSED → RESOLVED/VOIDED after 24 h (Phase 7)
 /// DISPUTE_WARNING: notification 2 h before dispute window closes (Phase 10)
@@ -297,6 +358,7 @@ enum JobType {
   LINE_CHALLENGE_EXPIRE
   STAKING_CLOSE
   STAKING_WARNING
+  VERIFICATION_TIEBREAKER_EXPIRE
   BET_EXPIRE
   DISPUTE_CLOSE
   DISPUTE_WARNING

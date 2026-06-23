@@ -15,6 +15,7 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { BetsService } from "./bets.service";
 import { LineService } from "./line.service";
 import { StakingService } from "./staking.service";
+import { VerificationService } from "./verification.service";
 
 @Controller()
 @UseGuards(ClerkAuthGuard, PhoneVerifiedGuard)
@@ -23,6 +24,7 @@ export class BetsController {
     private readonly bets: BetsService,
     private readonly line: LineService,
     private readonly staking: StakingService,
+    private readonly verification: VerificationService,
   ) {}
 
   // ─── Bet CRUD ───────────────────────────────────────────────────────────────
@@ -133,5 +135,60 @@ export class BetsController {
   @Get("bets/:id/odds")
   getOdds(@CurrentUser() user: User, @Param("id") betId: string) {
     return this.staking.getOdds(betId, user.id);
+  }
+
+  // ─── Verification events (spec §6) ─────────────────────────────────────────
+
+  /**
+   * Submit a new verification event for a bet (e.g. "I went to the gym" or
+   * the numeric outcome). Only staked members who joined before the bet started.
+   */
+  @Post("bets/:id/events")
+  @HttpCode(200)
+  submitEvent(
+    @CurrentUser() user: User,
+    @Param("id") betId: string,
+    @Body() body: { description?: string; numericValue?: number },
+  ) {
+    if (!body.description?.trim()) {
+      throw new BadRequestException("description is required");
+    }
+    return this.verification.submitEvent(betId, user.id, body.description, body.numericValue);
+  }
+
+  /** List all verification events for a bet (any circle member can view). */
+  @Get("bets/:id/events")
+  listEvents(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.verification.listEvents(betId, user.id);
+  }
+
+  /**
+   * Cast an initial vote on a verification event.
+   * Choice must be "verify" or "deny". Immutable once submitted.
+   */
+  @Post("events/:eventId/vote")
+  @HttpCode(200)
+  castVote(
+    @CurrentUser() user: User,
+    @Param("eventId") eventId: string,
+    @Body() body: { choice?: string },
+  ) {
+    if (!body.choice) throw new BadRequestException('choice is required ("verify" or "deny")');
+    return this.verification.castVote(eventId, user.id, body.choice);
+  }
+
+  /**
+   * Cast or change a vote during the 30-min tiebreaker window (spec §6.2).
+   * Allowed to change your vote until the window closes.
+   */
+  @Post("events/:eventId/tiebreaker-vote")
+  @HttpCode(200)
+  castTiebreakerVote(
+    @CurrentUser() user: User,
+    @Param("eventId") eventId: string,
+    @Body() body: { choice?: string },
+  ) {
+    if (!body.choice) throw new BadRequestException('choice is required ("verify" or "deny")');
+    return this.verification.castTiebreakerVote(eventId, user.id, body.choice);
   }
 }
