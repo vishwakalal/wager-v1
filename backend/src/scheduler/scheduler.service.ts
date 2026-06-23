@@ -4,6 +4,7 @@ import { STAKING_WINDOW_MS, BET_ACTIVE_MS } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
 type JobPayload = { betId: string };
+type JobHandler = (payload: JobPayload) => Promise<void>;
 
 function stakingWindowMs(duration: BetDuration): number {
   switch (duration) {
@@ -24,6 +25,7 @@ function betActiveMs(duration: BetDuration): number {
 @Injectable()
 export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchedulerService.name);
+  private readonly handlers = new Map<JobType, JobHandler>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
@@ -38,8 +40,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Schedule a new job. Accepts an optional Prisma tx client so callers can
-   *  enqueue the job inside the same transaction that changes bet status. */
+  /**
+   * Domain services call this in their onModuleInit to register handlers for the
+   * job types they own. Keeps SchedulerModule dependency-free of domain modules.
+   */
+  registerHandler(type: JobType, handler: JobHandler): void {
+    this.handlers.set(type, handler);
+  }
+
+  /** Schedule a new job. Pass a tx client to enqueue inside an existing transaction. */
   async schedule(
     type: JobType,
     runAt: Date,
@@ -50,10 +59,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await db.scheduledJob.create({ data: { type, runAt, payload, status: JobStatus.PENDING } });
   }
 
-  /** Cancel PENDING jobs of a given type for a bet (e.g. when a line is re-set). */
+  /** Cancel PENDING jobs of a given type for a bet (e.g. on line dispute reset). */
   async cancelForBet(type: JobType, betId: string, tx?: Prisma.TransactionClient): Promise<void> {
     const db = tx ?? this.prisma;
-    // payload is JSONB; filter via raw path operator so no full-table scan.
     await db.$executeRaw`
       UPDATE scheduled_jobs
          SET status = 'CANCELLED', "updatedAt" = NOW()
@@ -75,12 +83,11 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     });
 
     for (const job of jobs) {
-      // Soft optimistic-lock: only proceed if this poll "wins" the PENDING → RUNNING race.
       const { count } = await this.prisma.scheduledJob.updateMany({
         where: { id: job.id, status: JobStatus.PENDING },
         data: { status: JobStatus.RUNNING },
       });
-      if (count === 0) continue;
+      if (count === 0) continue; // another process won the race
 
       try {
         await this.dispatch(job.type, job.payload as JobPayload);
@@ -99,30 +106,31 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async dispatch(type: JobType, payload: JobPayload): Promise<void> {
-    switch (type) {
-      case JobType.LINE_CHALLENGE_EXPIRE:
-        return this.processLineChallengeExpire(payload.betId);
-      case JobType.STAKING_CLOSE:
-        return this.processStakingClose(payload.betId);
-      case JobType.STAKING_WARNING:
-      case JobType.BET_EXPIRE:
-      case JobType.DISPUTE_CLOSE:
-      case JobType.DISPUTE_WARNING:
-        this.logger.log(`${type} placeholder — Phase 5/7/10 will handle this`);
-        return;
+    const handler = this.handlers.get(type);
+    if (handler) {
+      await handler(payload);
+      return;
     }
+
+    // Built-in handlers that don't depend on domain services
+    if (type === JobType.LINE_CHALLENGE_EXPIRE) {
+      await this.processLineChallengeExpire(payload.betId);
+      return;
+    }
+
+    this.logger.log(`${type} — no handler registered yet (future phase)`);
   }
 
-  // ─── Handlers ──────────────────────────────────────────────────────────────
+  // ─── Built-in handler: LINE_CHALLENGE_EXPIRE ───────────────────────────────
 
-  /** LINE_CHALLENGE window expired with no 50%+ dispute → open staking (spec §3.1). */
+  /** 30-min challenge window expired with no 50%+ dispute → open staking (spec §3.1). */
   private async processLineChallengeExpire(betId: string): Promise<void> {
     const bet = await this.prisma.bet.findUnique({ where: { id: betId } });
     if (!bet || bet.status !== BetStatus.LINE_CHALLENGE) return; // idempotent
 
     const now = new Date();
     const stakingEndsAt = new Date(now.getTime() + stakingWindowMs(bet.duration));
-    const activeUntil = new Date(stakingEndsAt.getTime() + betActiveMs(bet.duration));
+    const activeUntil   = new Date(stakingEndsAt.getTime() + betActiveMs(bet.duration));
 
     await this.prisma.$transaction(async (db) => {
       await db.bet.update({
@@ -133,10 +141,5 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.logger.log(`bet ${betId}: LINE_CHALLENGE → STAKING (closes ${stakingEndsAt.toISOString()})`);
-  }
-
-  /** Staking window closed — Phase 5 will handle cap/void/odds. Placeholder. */
-  private async processStakingClose(betId: string): Promise<void> {
-    this.logger.log(`bet ${betId}: STAKING_CLOSE fired — Phase 5 will process this`);
   }
 }

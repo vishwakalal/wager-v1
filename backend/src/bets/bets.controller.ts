@@ -14,6 +14,7 @@ import { PhoneVerifiedGuard } from "../auth/phone-verified.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { BetsService } from "./bets.service";
 import { LineService } from "./line.service";
+import { StakingService } from "./staking.service";
 
 @Controller()
 @UseGuards(ClerkAuthGuard, PhoneVerifiedGuard)
@@ -21,6 +22,7 @@ export class BetsController {
   constructor(
     private readonly bets: BetsService,
     private readonly line: LineService,
+    private readonly staking: StakingService,
   ) {}
 
   // ─── Bet CRUD ───────────────────────────────────────────────────────────────
@@ -94,5 +96,42 @@ export class BetsController {
   @HttpCode(200)
   disputeLine(@CurrentUser() user: User, @Param("id") betId: string) {
     return this.line.disputeRevealedLine(betId, user.id);
+  }
+
+  // ─── Staking ───────────────────────────────────────────────────────────────
+
+  /**
+   * Place a stake. Amount is in cents (integer). Side: "over"/"under" for
+   * numeric bets, "yes"/"no" for binary. One stake per user per bet.
+   * Funds are held in escrow immediately; cap refunds issued at window close.
+   */
+  @Post("bets/:id/stake")
+  @HttpCode(200)
+  placeStake(
+    @CurrentUser() user: User,
+    @Param("id") betId: string,
+    @Body() body: { side?: string; amount?: number },
+  ) {
+    if (!body.side) throw new BadRequestException("side is required");
+    if (body.amount === undefined || body.amount === null) {
+      throw new BadRequestException("amount is required (cents)");
+    }
+    return this.staking.placeStake(betId, user.id, body.side, body.amount);
+  }
+
+  /** The caller's current stake on this bet, or null. */
+  @Get("bets/:id/my-stake")
+  getMyStake(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.staking.getMyStake(betId, user.id);
+  }
+
+  /**
+   * Pool sizes (always visible) and locked odds (after staking closes).
+   * Odds are parimutuel implied multipliers: e.g. odds.over = 1.75 means
+   * a $100 stake on over pays out $175 if over wins.
+   */
+  @Get("bets/:id/odds")
+  getOdds(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.staking.getOdds(betId, user.id);
   }
 }

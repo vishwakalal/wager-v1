@@ -34,6 +34,7 @@ model User {
   betsCreated      Bet[]              @relation("BetCreator")
   lineSubmissions  LineSubmission[]
   lineDisputeVotes LineDisputeVote[]
+  stakes           Stake[]
 
   @@map("users")
 }
@@ -206,6 +207,7 @@ model Bet {
   creator          User              @relation("BetCreator", fields: [creatorId], references: [id])
   lineSubmissions  LineSubmission[]
   lineDisputeVotes LineDisputeVote[]
+  stakes           Stake[]
 
   @@index([circleId])
   @@index([creatorId])
@@ -246,6 +248,39 @@ model LineDisputeVote {
   @@unique([betId, userId, round])
   @@index([betId])
   @@map("line_dispute_votes")
+}
+
+// ─── Stakes ──────────────────────────────────────────────────────────────────
+
+enum StakeSide {
+  OVER
+  UNDER
+  YES
+  NO
+}
+
+/// One stake per user per bet (spec §4.1). effectiveAmount and refundAmount are
+/// null until the staking window closes and the 5x cap is applied (spec §4.2).
+model Stake {
+  id              String    @id @default(cuid())
+  betId           String
+  userId          String
+  side            StakeSide
+  /// Original requested amount in cents.
+  amount          Int
+  /// Post-cap amount actually staked (set at window close).
+  effectiveAmount Int?
+  /// Cap excess returned to wallet (set at window close; 0 if no cap applied).
+  refundAmount    Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  bet  Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([betId, userId])
+  @@index([betId])
+  @@map("stakes")
 }
 
 // ─── Scheduling engine ───────────────────────────────────────────────────────

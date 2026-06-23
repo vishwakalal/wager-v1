@@ -366,7 +366,7 @@ line at the top and tick the box when done.
 - [x] Phase 2 — Auth & accounts
 - [x] Phase 3 — Circles
 - [x] Phase 4 — Bet creation + line setting
-- [ ] Phase 5 — Staking + parimutuel odds
+- [x] Phase 5 — Staking + parimutuel odds
 - [ ] Phase 6 — Verification engine
 - [ ] Phase 7 — Expiration, disputes & resolution
 - [ ] Phase 8 — Cancellation
