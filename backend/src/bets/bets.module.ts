@@ -9,10 +9,11 @@ import { StakingService } from "./staking.service";
 import { VerificationService } from "./verification.service";
 import { ResolutionService } from "./resolution.service";
 import { DisputeService } from "./dispute.service";
+import { CancellationService } from "./cancellation.service";
 
 @Module({
   imports: [PrismaModule, MoneyModule, SchedulerModule],
-  providers: [BetsService, LineService, StakingService, VerificationService, ResolutionService, DisputeService],
+  providers: [BetsService, LineService, StakingService, VerificationService, ResolutionService, DisputeService, CancellationService],
   controllers: [BetsController],
   exports: [BetsService],
 })

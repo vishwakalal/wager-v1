@@ -17,6 +17,7 @@ import { LineService } from "./line.service";
 import { StakingService } from "./staking.service";
 import { VerificationService } from "./verification.service";
 import { DisputeService } from "./dispute.service";
+import { CancellationService } from "./cancellation.service";
 
 @Controller()
 @UseGuards(ClerkAuthGuard, PhoneVerifiedGuard)
@@ -27,6 +28,7 @@ export class BetsController {
     private readonly staking: StakingService,
     private readonly verification: VerificationService,
     private readonly disputes: DisputeService,
+    private readonly cancellation: CancellationService,
   ) {}
 
   // ─── Bet CRUD ───────────────────────────────────────────────────────────────
@@ -234,5 +236,33 @@ export class BetsController {
       throw new BadRequestException("inFavor (boolean) is required");
     }
     return this.disputes.castVote(disputeId, user.id, body.inFavor);
+  }
+
+  // ─── Cancellation (spec §8) ─────────────────────────────────────────────────
+
+  /**
+   * Creator cancels the bet unilaterally at any lifecycle point.
+   * All stakers are refunded immediately; irreversible.
+   */
+  @Post("bets/:id/cancel")
+  @HttpCode(200)
+  cancelBet(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.cancellation.cancelByCreator(betId, user.id);
+  }
+
+  /**
+   * Staker votes to cancel the bet (spec §8). Immutable once cast.
+   * When 50%+ of stakers have voted, cancellation fires immediately.
+   */
+  @Post("bets/:id/cancel-vote")
+  @HttpCode(200)
+  voteToCancelBet(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.cancellation.voteToCancelBet(betId, user.id);
+  }
+
+  /** List all cancellation votes for a bet (any circle member can view). */
+  @Get("bets/:id/cancel-votes")
+  listCancelVotes(@CurrentUser() user: User, @Param("id") betId: string) {
+    return this.cancellation.listCancelVotes(betId, user.id);
   }
 }

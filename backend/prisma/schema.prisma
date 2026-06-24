@@ -39,6 +39,7 @@ model User {
   verificationVotes    VerificationVote[]
   disputesInitiated    Dispute[]           @relation("DisputeInitiator")
   disputeVotes         DisputeVote[]
+  cancellationVotes    CancellationVote[]
 
   @@map("users")
 }
@@ -217,6 +218,7 @@ model Bet {
   stakes               Stake[]
   verificationEvents   VerificationEvent[]
   disputes             Dispute[]
+  cancellationVotes    CancellationVote[]
 
   @@index([circleId])
   @@index([creatorId])
@@ -340,6 +342,23 @@ model DisputeVote {
   @@unique([disputeId, userId])
   @@index([disputeId])
   @@map("dispute_votes")
+}
+
+// ─── Cancellation ────────────────────────────────────────────────────────────
+
+/// One vote per staker per bet to cancel (spec §8). 50%+ of stakers → immediate cancel + refunds.
+model CancellationVote {
+  id        String   @id @default(cuid())
+  betId     String
+  userId    String
+  createdAt DateTime @default(now())
+
+  bet  Bet  @relation(fields: [betId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([betId, userId])
+  @@index([betId])
+  @@map("cancellation_votes")
 }
 
 // ─── Verification ────────────────────────────────────────────────────────────
