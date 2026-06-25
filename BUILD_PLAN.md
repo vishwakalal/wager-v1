@@ -15,7 +15,7 @@ ordered, testable engineering roadmap. Every phase has **goals**, **tasks**, and
 Three decisions frame everything below (locked in with the product owner):
 
 1. **Virtual currency first, real money plug-and-play later.** We build the entire
-   product on a virtual wallet now. *All* money flows go through a `PaymentProvider`
+   product on a virtual wallet now. _All_ money flows go through a `PaymentProvider`
    abstraction with a `VirtualProvider` implementation. Switching to real money =
    implement `StripeConnectProvider` + flip a config flag + do the compliance work.
    **No bet / stake / resolution logic ever changes.**
@@ -29,7 +29,7 @@ Three decisions frame everything below (locked in with the product owner):
 
 ## 1. Guiding principles
 
-- **Correctness over features.** The two areas that *must* be bulletproof are the
+- **Correctness over features.** The two areas that _must_ be bulletproof are the
   **time-driven state machine** (windows opening/closing, soft expiration, auto-void /
   auto-resolve) and the **financial math** (trimmed-mean line, parimutuel payouts, 5×
   relative cap refunds, ledger integrity). These get the most tests and the earliest
@@ -69,19 +69,19 @@ client/server drift on the rules that matter.
 
 ### 2.2 Stack (per spec §14)
 
-| Layer | Tech | Dev-phase choice (free) |
-|---|---|---|
-| Mobile | React Native + Expo | Expo Go / dev client, free |
-| Backend | Node.js + NestJS | runs locally; deploy later |
-| DB | PostgreSQL | **Neon** free tier (shared across devices) |
-| Cache/Realtime state | Redis | **Upstash** free tier |
-| Realtime transport | Socket.io | runs in API process |
-| Chat & media | Stream | Stream free dev tier (abstracted) |
-| Media storage | AWS S3 + CloudFront | deferred; local/stub in dev |
-| Auth | Clerk (Google/Apple/email + SMS OTP via Twilio) | Clerk free tier; **SMS stubbed in dev** |
-| Payments | Stripe Connect | **abstracted — Virtual in dev** |
-| Push | Expo Push | free |
-| Hosting | Railway or Render | deploy phase only |
+| Layer                | Tech                                            | Dev-phase choice (free)                    |
+| -------------------- | ----------------------------------------------- | ------------------------------------------ |
+| Mobile               | React Native + Expo                             | Expo Go / dev client, free                 |
+| Backend              | Node.js + NestJS                                | runs locally; deploy later                 |
+| DB                   | PostgreSQL                                      | **Neon** free tier (shared across devices) |
+| Cache/Realtime state | Redis                                           | **Upstash** free tier                      |
+| Realtime transport   | Socket.io                                       | runs in API process                        |
+| Chat & media         | Stream                                          | Stream free dev tier (abstracted)          |
+| Media storage        | AWS S3 + CloudFront                             | deferred; local/stub in dev                |
+| Auth                 | Clerk (Google/Apple/email + SMS OTP via Twilio) | Clerk free tier; **SMS stubbed in dev**    |
+| Payments             | Stripe Connect                                  | **abstracted — Virtual in dev**            |
+| Push                 | Expo Push                                       | free                                       |
+| Hosting              | Railway or Render                               | deploy phase only                          |
 
 ### 2.3 The financial abstraction (the core of "plug-and-play")
 
@@ -99,6 +99,7 @@ EscrowService             # locks stakes for a bet, releases on resolve/void/can
 ```
 
 Real-money-ready fields carried from day one (even while unused):
+
 - `transactions`: `idempotency_key`, `provider`, `provider_ref`, `status`, `type`
 - `wallets`: `available`, `held` (escrow), derived from ledger
 - placeholders for `payment_methods` (Stripe/Plaid linkage), KYC status on user
@@ -109,7 +110,7 @@ When we flip to real money: implement `StripeConnectProvider`, wire webhooks, se
 
 ### 2.4 The time / scheduling engine (the other core)
 
-Many spec behaviors are *deadline-driven* and must fire even if no user is online:
+Many spec behaviors are _deadline-driven_ and must fire even if no user is online:
 line challenge window (30m), staking windows (1h/24h/48h), 30-min staking warning,
 verification re-vote (30m), soft expiration → 24h dispute window, 2h dispute warning,
 auto-void, auto-resolve.
@@ -159,19 +160,19 @@ Yes/No skips LINE_SETTING / LINE_CHALLENGE (no line). Min members: numeric 4, bi
 
 ### 3.2 Key thresholds (single source of truth in `shared`)
 
-| Rule | Value |
-|---|---|
-| Line challenge window | 30 min, 50%+ to redo |
-| Staking windows | 1h / 24h / 48h by duration |
-| Min stake | $1 |
-| Relative cap | 5× lowest staker (excess auto-refunded) |
-| Verification | 50% of staked members |
-| Tiebreaker re-vote | 30 min; still tied → denied |
-| Post-expiration window | 24 h |
-| Dispute confirm | 70% of staked members |
-| Cancellation vote | 50%+ of staked members |
-| Rake (v1) | 0% (2% of losing pool when enabled) |
-| Min withdrawal | $5 |
+| Rule                   | Value                                   |
+| ---------------------- | --------------------------------------- |
+| Line challenge window  | 30 min, 50%+ to redo                    |
+| Staking windows        | 1h / 24h / 48h by duration              |
+| Min stake              | $1                                      |
+| Relative cap           | 5× lowest staker (excess auto-refunded) |
+| Verification           | 50% of staked members                   |
+| Tiebreaker re-vote     | 30 min; still tied → denied             |
+| Post-expiration window | 24 h                                    |
+| Dispute confirm        | 70% of staked members                   |
+| Cancellation vote      | 50%+ of staked members                  |
+| Rake (v1)              | 0% (2% of losing pool when enabled)     |
+| Min withdrawal         | $5                                      |
 
 ---
 
@@ -196,7 +197,9 @@ Sequenced **core-loop-first** (most product/financial risk retired earliest), th
 supporting systems, then polish/deploy. Each phase is independently demoable.
 
 ### Phase 0 — Foundations & scaffolding
+
 **Goal:** a running, type-safe monorepo with the riskiest pure logic already tested.
+
 - npm workspaces root, `tsconfig.base.json`, lint/format (ESLint + Prettier), CI-lite
   script (`npm run check` = typecheck + lint + test).
 - `packages/shared`: domain types + **parimutuel payout** + **trimmed-mean line** + 5×
@@ -208,7 +211,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   tests reproduce the spec's worked payout example exactly.
 
 ### Phase 1 — Data model & money ledger foundation
+
 **Goal:** full schema + the financial abstraction, on virtual currency.
+
 - All entities from §3 as migrations. Append-only `LedgerEntry`, `Transaction`, `Wallet`.
 - `PaymentProvider` interface + `VirtualProvider`; `LedgerService`, `WalletService`,
   `EscrowService`. `MONEY_MODE=virtual` flag.
@@ -218,7 +223,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   never break ledger invariants (no negative available, held≤total, ledger balances to 0).
 
 ### Phase 2 — Auth & accounts (spec §9)
+
 **Goal:** sign up / log in; phone verification abstracted (stubbed SMS in dev).
+
 - Clerk integration (Google, Apple, email+password). API verifies Clerk session JWT.
 - `PhoneVerifier` abstraction: `StubVerifier` in dev (fixed OTP), Twilio later. Rules:
   10-min expiry, 3 attempts, one-number-per-account, immutable after verify.
@@ -228,7 +235,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   enforced; deletion guards return correct errors.
 
 ### Phase 3 — Circles (spec §2.1, build-order 2)
+
 **Goal:** circles, invites, approval, membership rules.
+
 - Create circle, invite, creator-approves-join, leave rules (not while active
   participant; creator can't leave while a bet is active), join-mid-bet restriction.
 - Circle view data: stat cards, member list.
@@ -236,7 +245,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   from participating in in-progress bets.
 
 ### Phase 4 — Bet creation + blind line setting (spec §3, build-order 3–4)
+
 **Goal:** create both bet types; trimmed-mean line with challenge window.
+
 - Bet creation (type, duration, min-member checks). Immutable after creation.
 - Blind line submission (private/simultaneous), reveal, trimmed mean (reuses Phase 0
   pure fn), 30-min challenge window, 50%+ dispute → resubmit loop.
@@ -245,7 +256,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   window auto-advances; dispute loop repeats correctly.
 
 ### Phase 5 — Staking + parimutuel odds (spec §4, build-order 5)
+
 **Goal:** upfront staking window, caps, refunds, locked odds.
+
 - Staking window timers (1h/24h/48h) + 30-min warning. Min $1, 5× relative cap with
   auto-refund of excess, void if one-sided or empty. Escrow holds via `EscrowService`.
 - Odds computed once at window close (reuses Phase 0 parimutuel fn), locked.
@@ -253,7 +266,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   odds match shared-math tests; staked funds correctly held in escrow ledger.
 
 ### Phase 6 — Verification engine (spec §6, build-order 6)
+
 **Goal:** per-event 50% voting + 50/50 tiebreaker re-vote.
+
 - Queue update (staker or subject only; non-stakers & mid-bet joiners blocked). 50%
   verify/deny. 50/50 → 30-min re-vote window → majority or default deny; resubmit allowed.
 - Running line updated on verified events.
@@ -261,7 +276,9 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   verified events update the line.
 
 ### Phase 7 — Expiration, disputes & resolution (spec §5.2, §7, build-order 7)
+
 **Goal:** soft expiration → 24h window → finalize.
+
 - Soft expiration opens 24h window (+2h warning). No new queues after expiry; pending
   votes continue. Disputes: add-missed (70%) / remove-event (70%) with evidence.
 - Auto-resolve at window close: numeric line vs set line; binary verified-ever logic.
@@ -270,12 +287,16 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   resolve/void/payout end-to-end; unresolved dispute at close → full refund.
 
 ### Phase 8 — Cancellation (spec §8, build-order 8)
+
 **Goal:** creator unilateral cancel + 50% member cancel vote.
+
 - Cancel at any lifecycle point; immediate refunds to wallets; irreversible.
 - **Acceptance:** both cancel paths refund all stakers fully via ledger; irreversible.
 
 ### Phase 9 — Realtime + Chat (spec §6.3, build-order 9)
+
 **Goal:** live updates + Stream chat (circle-level + bet-level).
+
 - Socket.io: live odds, verification alerts, status changes. `ChatProvider` abstraction
   over Stream (free dev tier). Media evidence: client compress, cap video 15s (§15).
 - **Shareable invite links (deferred from Phase 3):** Creator generates a short-lived
@@ -289,20 +310,26 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   levels; media uploads under cap; invite link opens the app and joins the circle in one tap.
 
 ### Phase 10 — Notifications (spec §11, build-order 10–11)
+
 **Goal:** Expo push + full preference matrix + settings UI.
+
 - Expo Push tokens; 5 categories × triggers; default ON/OFF per spec; settings screen.
 - Hook all lifecycle/verification/dispute/circle/payment events to notifications.
 - **Acceptance:** each spec trigger fires; defaults correct; toggles respected.
 
 ### Phase 11 — Profile, feed & full UI pass (spec §12–13)
+
 **Goal:** the 4-tab app, dark/mint design system, all screens.
+
 - Design tokens (`#0F0F0F`/`#1A1A1A`/`#3DFFC0` + status colors). 4-tab nav (Feed,
   Circles, Alerts, Profile). Feed by urgency; balance card; circle inner tabs; bet cards
   with status pill/odds/pot/verification banners; profile stats + bet history filters.
 - **Acceptance:** every spec screen present and wired to live data; design tokens applied.
 
 ### Phase 12 — Hardening & test coverage
+
 **Goal:** end-to-end confidence before money is real.
+
 - E2E tests of full bet lifecycles (numeric & binary, incl. ties, disputes, voids,
   cancels). Load-test odds/escrow under concurrent stakes. Security pass (authz on every
   endpoint, idempotency, rate limits on OTP).
@@ -310,14 +337,18 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
   across a full simulated season.
 
 ### Phase 13 — Deploy (still virtual money)
+
 **Goal:** live app, real users, real engagement data — virtual currency (per §16).
+
 - Deploy API to Railway/Render; managed Postgres/Redis; Expo build via EAS (Apple $99,
   Google $25). Monitoring/error tracking. Budget expands here.
 - **Acceptance:** installable build; production smoke tests pass; onboarding states real
   fees are coming (§7.4).
 
-### Phase 14 — Real-money switch (spec §10, build-order 12–13) — *gated on legal*
+### Phase 14 — Real-money switch (spec §10, build-order 12–13) — _gated on legal_
+
 **Goal:** plug in Stripe; nothing else changes.
+
 - Implement `StripeConnectProvider` (Payment Intents, ACH+Plaid, Connect Payouts),
   webhooks, real `Transaction` reconciliation, KYC. Optional 2% rake (§7.4). Flip
   `MONEY_MODE=real`. Compliance/licensing per §16 with counsel.
@@ -347,31 +378,31 @@ supporting systems, then polish/deploy. Each phase is independently demoable.
 
 ## 8. Top risks & mitigations
 
-| Risk | Mitigation |
-|---|---|
+| Risk                                    | Mitigation                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
 | Financial bugs (double-pay, lost funds) | Append-only ledger, idempotency, property tests, reconcile-to-zero invariant |
-| Timer/state races (windows) | Durable Postgres job table, idempotent guarded transitions |
-| Real-money retrofit pain | Abstractions + real-money-ready schema built in Phase 1 |
-| Legal exposure | Virtual currency until funded + counsel (§16) |
-| Two-device drift | Shared cloud dev DB, everything in git, `.env.example` + `SETUP.md` |
-| Cost surprises (Stream/S3) | Free tiers in dev; 15s video cap + client compression |
+| Timer/state races (windows)             | Durable Postgres job table, idempotent guarded transitions                   |
+| Real-money retrofit pain                | Abstractions + real-money-ready schema built in Phase 1                      |
+| Legal exposure                          | Virtual currency until funded + counsel (§16)                                |
+| Two-device drift                        | Shared cloud dev DB, everything in git, `.env.example` + `SETUP.md`          |
+| Cost surprises (Stream/S3)              | Free tiers in dev; 15s video cap + client compression                        |
 
 ## 9. Tracking
 
 Each phase is checked off only when its **acceptance criteria** pass. Update the status
 line at the top and tick the box when done.
 
-- [x] Phase 0 — Foundations & scaffolding  *(ESLint/Prettier lint tooling deferred to Phase 12)*
-- [x] Phase 1 — Data model & money ledger  *(wallet/ledger live; circles/bets schema follow in their phases)*
+- [x] Phase 0 — Foundations & scaffolding _(ESLint/Prettier lint tooling deferred to Phase 12)_
+- [x] Phase 1 — Data model & money ledger _(wallet/ledger live; circles/bets schema follow in their phases)_
 - [x] Phase 2 — Auth & accounts
 - [x] Phase 3 — Circles
 - [x] Phase 4 — Bet creation + line setting
 - [x] Phase 5 — Staking + parimutuel odds
-- [ ] Phase 6 — Verification engine
-- [ ] Phase 7 — Expiration, disputes & resolution
-- [ ] Phase 8 — Cancellation
-- [ ] Phase 9 — Realtime + chat
-- [ ] Phase 10 — Notifications
+- [x] Phase 6 — Verification engine
+- [x] Phase 7 — Expiration, disputes & resolution
+- [x] Phase 8 — Cancellation
+- [x] Phase 9 — Realtime + chat
+- [x] Phase 10 — Notifications
 - [ ] Phase 11 — Profile, feed & UI
 - [ ] Phase 12 — Hardening
 - [ ] Phase 13 — Deploy (virtual)

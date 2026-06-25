@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { BetDuration, BetStatus, JobStatus, JobType, Prisma } from "@prisma/client";
-import { STAKING_WINDOW_MS, BET_ACTIVE_MS } from "@wager/shared";
+import { STAKING_WINDOW_MS, BET_ACTIVE_MS, STAKING_CLOSING_WARNING_MS } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
 type JobPayload = Record<string, string>;
@@ -132,12 +132,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const stakingEndsAt = new Date(now.getTime() + stakingWindowMs(bet.duration));
     const activeUntil   = new Date(stakingEndsAt.getTime() + betActiveMs(bet.duration));
 
+    const warningAt = new Date(stakingEndsAt.getTime() - STAKING_CLOSING_WARNING_MS);
+
     await this.prisma.$transaction(async (db) => {
       await db.bet.update({
         where: { id: betId },
         data: { status: BetStatus.STAKING, stakingEndsAt, activeUntil },
       });
       await this.schedule(JobType.STAKING_CLOSE, stakingEndsAt, { betId }, db);
+      if (warningAt > now) {
+        await this.schedule(JobType.STAKING_WARNING, warningAt, { betId }, db);
+      }
     });
 
     this.logger.log(`bet ${betId}: LINE_CHALLENGE → STAKING (closes ${stakingEndsAt.toISOString()})`);

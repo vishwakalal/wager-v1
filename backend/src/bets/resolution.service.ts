@@ -12,11 +12,15 @@ import {
 import {
   computeParimutuelPayouts,
   POST_EXPIRATION_WINDOW_MS,
+  DISPUTE_CLOSING_WARNING_MS,
   RAKE_BPS,
 } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { EscrowService } from "../money/escrow.service";
 import { SchedulerService } from "../scheduler/scheduler.service";
+import { RealtimeService } from "../realtime/realtime.service";
+import { NotificationService } from "../notifications/notification.service";
+import { NotificationTrigger } from "@prisma/client";
 
 @Injectable()
 export class ResolutionService implements OnModuleInit {
@@ -26,6 +30,8 @@ export class ResolutionService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly escrow: EscrowService,
     private readonly scheduler: SchedulerService,
+    private readonly realtime: RealtimeService,
+    private readonly notifications: NotificationService,
   ) {}
 
   onModuleInit() {
@@ -56,9 +62,22 @@ export class ResolutionService implements OnModuleInit {
         data: { status: BetStatus.CLOSED, closedAt },
       });
       await this.scheduler.schedule(JobType.DISPUTE_CLOSE, disputeCloseAt, { betId }, tx);
+      const warningAt = new Date(disputeCloseAt.getTime() - DISPUTE_CLOSING_WARNING_MS);
+      if (warningAt > closedAt) {
+        await this.scheduler.schedule(JobType.DISPUTE_WARNING, warningAt, { betId }, tx);
+      }
     });
 
     this.logger.log(`bet ${betId}: ACTIVE → CLOSED (dispute window closes ${disputeCloseAt.toISOString()})`);
+    this.realtime.emitToBet(betId, "bet:status_changed", { betId, status: "CLOSED" });
+
+    const stakerIds = (await this.prisma.stake.findMany({ where: { betId }, select: { userId: true } }))
+      .map((s) => s.userId);
+    void this.notifications.send(stakerIds, NotificationTrigger.BET_EXPIRED, {
+      title: "Bet expired — dispute window open",
+      body: `"${bet.description}" has ended. You have 24 hours to raise a dispute.`,
+      data: { betId },
+    });
   }
 
   // ─── DISPUTE_CLOSE ────────────────────────────────────────────────────────
@@ -151,6 +170,12 @@ export class ResolutionService implements OnModuleInit {
       data: { status: BetStatus.VOIDED, resolvedAt: new Date() },
     });
     this.logger.log(`bet ${bet.id}: VOIDED (${reason}), refunded ${stakes.length} stakers`);
+    this.realtime.emitToBet(bet.id, "bet:status_changed", { betId: bet.id, status: "VOIDED" });
+    void this.notifications.send(
+      stakes.map((s) => s.userId),
+      NotificationTrigger.BET_VOIDED,
+      { title: "Bet voided — stake refunded", body: `"${bet.description}" was voided. Your stake has been refunded.`, data: { betId: bet.id } },
+    );
   }
 
   // ─── Payout ───────────────────────────────────────────────────────────────
@@ -192,5 +217,25 @@ export class ResolutionService implements OnModuleInit {
       `bet ${bet.id}: RESOLVED → ${winningSide} wins; ` +
       `paid out ${result.payouts.length} winners from ${losingPoolTotal}¢ losing pool`,
     );
+    this.realtime.emitToBet(bet.id, "bet:status_changed", { betId: bet.id, status: "RESOLVED", winningSide });
+
+    const winnerIds = winnerStakes.map((s) => s.userId);
+    const loserIds  = loserStakes.map((s) => s.userId);
+
+    void this.notifications.send(winnerIds, NotificationTrigger.BET_RESOLVED_WON, {
+      title: "You won!",
+      body: `"${bet.description}" resolved in your favour.`,
+      data: { betId: bet.id },
+    });
+    void this.notifications.send(loserIds, NotificationTrigger.BET_RESOLVED_LOST, {
+      title: "Bet resolved",
+      body: `"${bet.description}" didn't go your way this time.`,
+      data: { betId: bet.id },
+    });
+    void this.notifications.send(winnerIds, NotificationTrigger.PAYMENT_PAYOUT, {
+      title: "Payout credited",
+      body: `Your winnings from "${bet.description}" have been credited to your balance.`,
+      data: { betId: bet.id },
+    });
   }
 }

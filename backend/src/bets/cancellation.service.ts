@@ -10,6 +10,7 @@ import { BetStatus, MemberStatus, type Stake } from "@prisma/client";
 import { CANCEL_VOTE_THRESHOLD } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { EscrowService } from "../money/escrow.service";
+import { RealtimeService } from "../realtime/realtime.service";
 
 const TERMINAL = new Set<BetStatus>([BetStatus.RESOLVED, BetStatus.VOIDED, BetStatus.CANCELLED]);
 
@@ -20,6 +21,7 @@ export class CancellationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly escrow: EscrowService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   // ─── Creator unilateral cancel ─────────────────────────────────────────────
@@ -137,6 +139,7 @@ export class CancellationService {
       data: { status: BetStatus.CANCELLED, resolvedAt: new Date() },
     });
     this.logger.log(`bet ${betId}: CANCELLED (${reason}), refunded ${stakes.length} staker(s)`);
+    this.realtime.emitToBet(betId, "bet:status_changed", { betId, status: "CANCELLED" });
   }
 
   // ─── Guards ────────────────────────────────────────────────────────────────

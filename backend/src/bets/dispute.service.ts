@@ -10,14 +10,19 @@ import {
   DisputeStatus,
   DisputeType,
   MemberStatus,
+  NotificationTrigger,
   VerificationStatus,
 } from "@prisma/client";
 import { DISPUTE_THRESHOLD } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
+import { NotificationService } from "../notifications/notification.service";
 
 @Injectable()
 export class DisputeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   // ─── Raise a dispute ───────────────────────────────────────────────────────
 
@@ -56,7 +61,7 @@ export class DisputeService {
       }
     }
 
-    return this.prisma.dispute.create({
+    const dispute = await this.prisma.dispute.create({
       data: {
         betId,
         initiatorId: userId,
@@ -65,6 +70,16 @@ export class DisputeService {
         description: description.trim(),
       },
     });
+
+    // Notify all stakers (including initiator — they want confirmation)
+    const stakes = await this.prisma.stake.findMany({ where: { betId }, select: { userId: true } });
+    void this.notifications.send(
+      stakes.map((s) => s.userId),
+      NotificationTrigger.DISPUTE_RAISED,
+      { title: "Dispute raised", body: description.trim(), data: { betId, disputeId: dispute.id } },
+    );
+
+    return dispute;
   }
 
   // ─── Vote on a dispute ─────────────────────────────────────────────────────
@@ -147,6 +162,17 @@ export class DisputeService {
 
     if (inFavorCount / stakerCount >= DISPUTE_THRESHOLD) {
       await this.confirmDispute(disputeId, type, betId, targetEventId);
+      const bet = await this.prisma.bet.findUnique({ where: { id: betId }, select: { description: true } });
+      const trigger = type === DisputeType.ADD
+        ? NotificationTrigger.DISPUTE_RESOLVED_ADDED
+        : NotificationTrigger.DISPUTE_RESOLVED_REMOVED;
+      const title = type === DisputeType.ADD ? "Dispute confirmed: event added" : "Dispute confirmed: event removed";
+      const stakes2 = await this.prisma.stake.findMany({ where: { betId }, select: { userId: true } });
+      void this.notifications.send(
+        stakes2.map((s) => s.userId),
+        trigger,
+        { title, body: `A dispute on "${bet?.description}" was confirmed by the group.`, data: { betId, disputeId } },
+      );
       return { outcome: "confirmed" as const };
     }
 

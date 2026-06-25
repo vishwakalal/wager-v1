@@ -9,6 +9,9 @@ import { SchedulerModule } from "./scheduler/scheduler.module";
 import { BetsModule } from "./bets/bets.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
+import { RealtimeModule } from "./realtime/realtime.module";
+import { ChatModule } from "./chat/chat.module";
+import { NotificationModule } from "./notifications/notification.module";
 
 /**
  * Root module. As the build plan progresses, domain modules (auth, circles,
@@ -27,6 +30,9 @@ import { RedisModule } from "./redis/redis.module";
     SearchModule,
     SchedulerModule,
     BetsModule,
+    RealtimeModule,
+    ChatModule,
+    NotificationModule,
   ],
   controllers: [HealthController],
 })

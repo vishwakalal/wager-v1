@@ -85,4 +85,34 @@ export class CirclesController {
   leave(@CurrentUser() user: User, @Param("id") circleId: string) {
     return this.circles.leave(circleId, user.id);
   }
+
+  // ─── Invite links (spec §9, Phase 9) ─────────────────────────────────────
+
+  /**
+   * Generate (or refresh) a 30-day invite link for the circle (creator only).
+   * Returns { url: "wager://join/{token}", expiresAt }.
+   * Sharing the URL is implicit approval — anyone who taps it is auto-joined.
+   */
+  @Post(":id/invite-link")
+  @HttpCode(200)
+  generateInviteLink(@CurrentUser() user: User, @Param("id") circleId: string) {
+    return this.circles.generateInviteLink(circleId, user.id);
+  }
+
+  /** Revoke the current invite link (creator only). */
+  @Delete(":id/invite-link")
+  @HttpCode(200)
+  revokeInviteLink(@CurrentUser() user: User, @Param("id") circleId: string) {
+    return this.circles.revokeInviteLink(circleId, user.id);
+  }
+
+  /**
+   * Consume an invite token — auto-approve the caller into the circle.
+   * Called by the mobile app after the deep link opens (wager://join/{token}).
+   */
+  @Post("join/:token")
+  @HttpCode(200)
+  joinViaInviteLink(@CurrentUser() user: User, @Param("token") token: string) {
+    return this.circles.joinViaInviteToken(token, user.id);
+  }
 }

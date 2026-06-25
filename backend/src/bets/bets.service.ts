@@ -4,10 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { BetDuration, BetStatus, BetType, JobType, MemberStatus } from "@prisma/client";
-import { BET_DURATIONS, MIN_MEMBERS, STAKING_WINDOW_MS, BET_ACTIVE_MS } from "@wager/shared";
+import { BetDuration, BetStatus, BetType, JobType, MemberStatus, NotificationTrigger } from "@prisma/client";
+import { BET_DURATIONS, MIN_MEMBERS, STAKING_WINDOW_MS, BET_ACTIVE_MS, STAKING_CLOSING_WARNING_MS } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { SchedulerService } from "../scheduler/scheduler.service";
+import { RealtimeService } from "../realtime/realtime.service";
+import { NotificationService } from "../notifications/notification.service";
 
 export interface CreateBetDto {
   type: string;
@@ -42,6 +44,8 @@ export class BetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scheduler: SchedulerService,
+    private readonly realtime: RealtimeService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async create(circleId: string, creatorId: string, dto: CreateBetDto) {
@@ -88,8 +92,8 @@ export class BetsService {
       const stakingEndsAt = new Date(now.getTime() + stakingWindowMs(duration));
       const activeUntil  = new Date(stakingEndsAt.getTime() + betActiveMs(duration));
 
-      return this.prisma.$transaction(async (db) => {
-        const bet = await db.bet.create({
+      const bet = await this.prisma.$transaction(async (db) => {
+        const created = await db.bet.create({
           data: {
             circleId,
             creatorId,
@@ -101,13 +105,20 @@ export class BetsService {
             activeUntil,
           },
         });
-        await this.scheduler.schedule(JobType.STAKING_CLOSE, stakingEndsAt, { betId: bet.id }, db);
-        return bet;
+        await this.scheduler.schedule(JobType.STAKING_CLOSE, stakingEndsAt, { betId: created.id }, db);
+        const warningAt = new Date(stakingEndsAt.getTime() - STAKING_CLOSING_WARNING_MS);
+        if (warningAt > now) {
+          await this.scheduler.schedule(JobType.STAKING_WARNING, warningAt, { betId: created.id }, db);
+        }
+        return created;
       });
+      this.realtime.emitToCircle(circleId, "bet:created", { betId: bet.id, type: bet.type });
+      void this.notifyCircleBetCreated(circleId, creatorId, bet.id, bet.description);
+      return bet;
     }
 
     // Numeric — start in LINE_SETTING; no timer until line is revealed
-    return this.prisma.bet.create({
+    const bet = await this.prisma.bet.create({
       data: {
         circleId,
         creatorId,
@@ -117,6 +128,27 @@ export class BetsService {
         description: dto.description.trim(),
         lineRound: 1,
       },
+    });
+    this.realtime.emitToCircle(circleId, "bet:created", { betId: bet.id, type: bet.type });
+    void this.notifyCircleBetCreated(circleId, creatorId, bet.id, bet.description);
+    return bet;
+  }
+
+  private async notifyCircleBetCreated(
+    circleId: string,
+    creatorId: string,
+    betId: string,
+    description: string,
+  ): Promise<void> {
+    const memberships = await this.prisma.circleMembership.findMany({
+      where: { circleId, status: MemberStatus.APPROVED, userId: { not: creatorId } },
+      select: { userId: true },
+    });
+    const userIds = memberships.map((m) => m.userId);
+    await this.notifications.send(userIds, NotificationTrigger.CIRCLE_BET_CREATED, {
+      title: "New bet in your circle",
+      body: description,
+      data: { betId },
     });
   }
 

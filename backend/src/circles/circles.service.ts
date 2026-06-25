@@ -1,11 +1,16 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { MemberRole, MemberStatus, type Circle, type CircleMembership } from "@prisma/client";
+import { MemberRole, MemberStatus, NotificationTrigger, type Circle, type CircleMembership } from "@prisma/client";
+import { randomBytes } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
+import { NotificationService } from "../notifications/notification.service";
+
+const INVITE_TOKEN_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface CircleDetail {
   circle: Circle;
@@ -14,7 +19,10 @@ export interface CircleDetail {
 
 @Injectable()
 export class CirclesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   /** Create a new circle. The creator is immediately an APPROVED CREATOR member. */
   async create(userId: string, name: string): Promise<Circle> {
@@ -68,10 +76,18 @@ export class CirclesService {
       throw new ConflictException("user is already approved");
     }
 
-    return this.prisma.circleMembership.update({
+    const updated = await this.prisma.circleMembership.update({
       where: { circleId_userId: { circleId, userId: targetUserId } },
       data: { status: MemberStatus.APPROVED, joinedAt: new Date() },
     });
+
+    void this.notifications.send(targetUserId, NotificationTrigger.CIRCLE_APPROVED, {
+      title: "Join request approved",
+      body: `You've been approved to join the circle.`,
+      data: { circleId },
+    });
+
+    return updated;
   }
 
   /**
@@ -94,9 +110,24 @@ export class CirclesService {
       );
     }
 
-    return this.prisma.circleMembership.create({
+    const membership = await this.prisma.circleMembership.create({
       data: { circleId, userId, role: MemberRole.MEMBER, status: MemberStatus.PENDING },
     });
+
+    // Notify circle creator of the join request
+    const creator = await this.prisma.circleMembership.findFirst({
+      where: { circleId, role: MemberRole.CREATOR, status: MemberStatus.APPROVED },
+      select: { userId: true },
+    });
+    if (creator) {
+      void this.notifications.send(creator.userId, NotificationTrigger.CIRCLE_JOIN_REQUEST, {
+        title: "New join request",
+        body: `Someone wants to join your circle.`,
+        data: { circleId },
+      });
+    }
+
+    return membership;
   }
 
   /**
@@ -232,6 +263,87 @@ export class CirclesService {
     if (!m || m.status !== MemberStatus.APPROVED) {
       throw new ForbiddenException("you are not a member of this circle");
     }
+  }
+
+  // ─── Invite links (spec §9, Phase 9) ──────────────────────────────────────
+
+  /**
+   * Generate (or refresh) a shareable invite link for the circle.
+   * Only the circle creator can call this. One token per circle; regenerating
+   * replaces the previous one. Deep-link format: wager://join/{token}
+   */
+  async generateInviteLink(circleId: string, userId: string) {
+    await this.requireRole(circleId, userId, MemberRole.CREATOR);
+
+    const token = randomBytes(24).toString("base64url");
+    const expiresAt = new Date(Date.now() + INVITE_TOKEN_EXPIRY_MS);
+
+    await this.prisma.circleInviteToken.upsert({
+      where: { circleId },
+      create: { circleId, token, expiresAt },
+      update: { token, expiresAt },
+    });
+
+    return { url: `wager://join/${token}`, expiresAt };
+  }
+
+  /** Revoke the active invite link (creator only). */
+  async revokeInviteLink(circleId: string, userId: string): Promise<void> {
+    await this.requireRole(circleId, userId, MemberRole.CREATOR);
+    await this.prisma.circleInviteToken.deleteMany({ where: { circleId } });
+  }
+
+  /**
+   * Auto-approve the caller into the circle identified by the invite token.
+   * Sharing the link is implicit consent — anyone with the link is approved.
+   */
+  async joinViaInviteToken(token: string, userId: string): Promise<CircleMembership> {
+    const invite = await this.prisma.circleInviteToken.findUnique({ where: { token } });
+    if (!invite) throw new NotFoundException("invite link is invalid or has been revoked");
+    if (invite.expiresAt < new Date()) throw new BadRequestException("invite link has expired");
+
+    const circleId = invite.circleId;
+
+    const existing = await this.prisma.circleMembership.findUnique({
+      where: { circleId_userId: { circleId, userId } },
+    });
+
+    if (existing) {
+      if (existing.status === MemberStatus.APPROVED) {
+        throw new ConflictException("you are already a member of this circle");
+      }
+      // Upgrade a PENDING request to APPROVED immediately
+      const m = await this.prisma.circleMembership.update({
+        where: { circleId_userId: { circleId, userId } },
+        data: { status: MemberStatus.APPROVED, joinedAt: new Date() },
+      });
+      void this.notifyMemberJoined(circleId, userId);
+      return m;
+    }
+
+    const m = await this.prisma.circleMembership.create({
+      data: {
+        circleId,
+        userId,
+        role: MemberRole.MEMBER,
+        status: MemberStatus.APPROVED,
+        joinedAt: new Date(),
+      },
+    });
+    void this.notifyMemberJoined(circleId, userId);
+    return m;
+  }
+
+  private async notifyMemberJoined(circleId: string, newUserId: string): Promise<void> {
+    const others = await this.prisma.circleMembership.findMany({
+      where: { circleId, status: MemberStatus.APPROVED, userId: { not: newUserId } },
+      select: { userId: true },
+    });
+    await this.notifications.send(
+      others.map((m) => m.userId),
+      NotificationTrigger.CIRCLE_MEMBER_JOINED,
+      { title: "New member joined", body: "Someone new joined your circle.", data: { circleId } },
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

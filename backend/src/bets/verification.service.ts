@@ -12,6 +12,7 @@ import {
   BetStatus,
   JobType,
   MemberStatus,
+  NotificationTrigger,
   Prisma,
   type VerificationEvent,
   VerificationStatus,
@@ -20,6 +21,8 @@ import {
 import { VERIFY_THRESHOLD, TIEBREAKER_REVOTE_WINDOW_MS } from "@wager/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { SchedulerService } from "../scheduler/scheduler.service";
+import { RealtimeService } from "../realtime/realtime.service";
+import { NotificationService } from "../notifications/notification.service";
 
 const CHOICE_MAP: Record<string, VoteChoice> = {
   verify: VoteChoice.VERIFY,
@@ -33,6 +36,8 @@ export class VerificationService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly scheduler: SchedulerService,
+    private readonly realtime: RealtimeService,
+    private readonly notifications: NotificationService,
   ) {}
 
   onModuleInit() {
@@ -64,7 +69,7 @@ export class VerificationService implements OnModuleInit {
 
     await this.requireStaker(bet, userId);
 
-    return this.prisma.verificationEvent.create({
+    const event = await this.prisma.verificationEvent.create({
       data: {
         betId,
         submitterId: userId,
@@ -74,6 +79,19 @@ export class VerificationService implements OnModuleInit {
           : {}),
       },
     });
+
+    // Notify all stakers (except submitter) that a new event needs verification
+    const stakes = await this.prisma.stake.findMany({
+      where: { betId, userId: { not: userId } },
+      select: { userId: true },
+    });
+    void this.notifications.send(
+      stakes.map((s) => s.userId),
+      NotificationTrigger.VERIFICATION_NEEDED,
+      { title: "New event to verify", body: description.trim(), data: { betId, eventId: event.id } },
+    );
+
+    return event;
   }
 
   /** List all events for a bet, with vote counts and the caller's vote status. */
@@ -223,6 +241,12 @@ export class VerificationService implements OnModuleInit {
         data: { status: VerificationStatus.VERIFIED },
       });
       this.logger.log(`event ${event.id} VERIFIED (${verifyCount}/${stakerCount})`);
+      this.realtime.emitToBet(bet.id, "bet:verification_updated", { betId: bet.id, eventId: event.id, status: "VERIFIED" });
+      void this.notifyAllStakers(bet.id, NotificationTrigger.VERIFICATION_APPROVED, {
+        title: "Event verified",
+        body: `An event on "${bet.description}" was verified by the group.`,
+        data: { betId: bet.id, eventId: event.id },
+      });
       return { outcome: "verified" as const };
     }
 
@@ -232,6 +256,12 @@ export class VerificationService implements OnModuleInit {
         data: { status: VerificationStatus.DENIED },
       });
       this.logger.log(`event ${event.id} DENIED (${denyCount}/${stakerCount})`);
+      this.realtime.emitToBet(bet.id, "bet:verification_updated", { betId: bet.id, eventId: event.id, status: "DENIED" });
+      void this.notifyAllStakers(bet.id, NotificationTrigger.VERIFICATION_DENIED, {
+        title: "Event denied",
+        body: `An event on "${bet.description}" was denied by the group.`,
+        data: { betId: bet.id, eventId: event.id },
+      });
       return { outcome: "denied" as const };
     }
 
@@ -248,6 +278,11 @@ export class VerificationService implements OnModuleInit {
         { betId: bet.id, verificationEventId: event.id } satisfies Record<string, string>,
       );
       this.logger.log(`event ${event.id} TIEBREAKER (${verifyCount}/${stakerCount} each)`);
+      void this.notifyAllStakers(bet.id, NotificationTrigger.VERIFICATION_TIEBREAKER, {
+        title: "Verification tiebreaker",
+        body: `Vote is tied on "${bet.description}" — re-vote to break the tie.`,
+        data: { betId: bet.id, eventId: event.id },
+      });
       return { outcome: "tiebreaker" as const, tiebreakerEndsAt };
     }
 
@@ -287,6 +322,17 @@ export class VerificationService implements OnModuleInit {
     }
 
     return { outcome: "pending" as const };
+  }
+
+  // ─── Notification helper ───────────────────────────────────────────────────
+
+  private async notifyAllStakers(
+    betId: string,
+    trigger: NotificationTrigger,
+    msg: Parameters<NotificationService["send"]>[2],
+  ): Promise<void> {
+    const stakes = await this.prisma.stake.findMany({ where: { betId }, select: { userId: true } });
+    await this.notifications.send(stakes.map((s) => s.userId), trigger, msg);
   }
 
   // ─── Guards & helpers ──────────────────────────────────────────────────────

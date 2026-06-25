@@ -16,6 +16,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { EscrowService } from "../money/escrow.service";
 import { SchedulerService } from "../scheduler/scheduler.service";
+import { RealtimeService } from "../realtime/realtime.service";
 
 const SIDE_INPUT: Record<string, StakeSide> = {
   over:  StakeSide.OVER,
@@ -41,6 +42,7 @@ export class StakingService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly escrow: EscrowService,
     private readonly scheduler: SchedulerService,
+    private readonly realtime: RealtimeService,
   ) {}
 
   onModuleInit() {
@@ -270,5 +272,6 @@ export class StakingService implements OnModuleInit {
     });
 
     this.logger.log(`bet ${betId}: STAKING → ACTIVE (expires ${bet.activeUntil.toISOString()})`);
+    this.realtime.emitToBet(betId, "bet:odds_locked", { betId, circleId: bet.circleId });
   }
 }

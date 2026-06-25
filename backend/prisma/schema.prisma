@@ -40,6 +40,8 @@ model User {
   disputesInitiated    Dispute[]           @relation("DisputeInitiator")
   disputeVotes         DisputeVote[]
   cancellationVotes    CancellationVote[]
+  pushTokens           PushToken[]
+  notificationPrefs    NotificationPreference[]
 
   @@map("users")
 }
@@ -121,8 +123,9 @@ model Circle {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships CircleMembership[]
-  bets        Bet[]
+  memberships  CircleMembership[]
+  bets         Bet[]
+  inviteToken  CircleInviteToken?
 
   @@map("circles")
 }
@@ -342,6 +345,92 @@ model DisputeVote {
   @@unique([disputeId, userId])
   @@index([disputeId])
   @@map("dispute_votes")
+}
+
+// ─── Push notifications ───────────────────────────────────────────────────────
+
+/// One row per registered Expo push token. A user can have tokens on multiple devices.
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String   // "ios" | "android" | "web"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+/// Sparse preference store — a row only exists when the user deviates from the spec
+/// default. Missing row = use NOTIFICATION_DEFAULTS[trigger] from notification-defaults.ts.
+model NotificationPreference {
+  id        String              @id @default(cuid())
+  userId    String
+  trigger   NotificationTrigger
+  enabled   Boolean
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trigger])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+/// All triggers from spec §11. Grouped into categories in the application layer.
+enum NotificationTrigger {
+  // Bet lifecycle
+  BET_LINE_OPEN
+  BET_LINE_REVEALED
+  BET_STAKING_OPEN
+  BET_STAKING_WARNING
+  BET_STAKING_CLOSED
+  BET_ACTIVE
+  BET_EXPIRED
+  BET_DISPUTE_WARNING
+  BET_RESOLVED_WON
+  BET_RESOLVED_LOST
+  BET_VOIDED
+  // Verification
+  VERIFICATION_NEEDED
+  VERIFICATION_TIEBREAKER
+  VERIFICATION_APPROVED
+  VERIFICATION_DENIED
+  // Disputes
+  DISPUTE_RAISED
+  DISPUTE_RESOLVED_ADDED
+  DISPUTE_RESOLVED_REMOVED
+  // Circles
+  CIRCLE_JOIN_REQUEST
+  CIRCLE_APPROVED
+  CIRCLE_BET_CREATED
+  CIRCLE_MEMBER_JOINED
+  // Payments
+  PAYMENT_DEPOSIT
+  PAYMENT_WITHDRAWAL_INITIATED
+  PAYMENT_WITHDRAWAL_COMPLETED
+  PAYMENT_PAYOUT
+}
+
+// ─── Invite links ────────────────────────────────────────────────────────────
+
+/// One active invite token per circle (upserted on each generate request).
+/// Anyone with the link is auto-approved on use (spec §9, Phase 9).
+model CircleInviteToken {
+  id        String   @id @default(cuid())
+  circleId  String   @unique
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  circle Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("circle_invite_tokens")
 }
 
 // ─── Cancellation ────────────────────────────────────────────────────────────

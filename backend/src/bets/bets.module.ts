@@ -2,6 +2,8 @@ import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { MoneyModule } from "../money/money.module";
 import { SchedulerModule } from "../scheduler/scheduler.module";
+import { RealtimeModule } from "../realtime/realtime.module";
+import { NotificationModule } from "../notifications/notification.module";
 import { BetsService } from "./bets.service";
 import { BetsController } from "./bets.controller";
 import { LineService } from "./line.service";
@@ -12,7 +14,7 @@ import { DisputeService } from "./dispute.service";
 import { CancellationService } from "./cancellation.service";
 
 @Module({
-  imports: [PrismaModule, MoneyModule, SchedulerModule],
+  imports: [PrismaModule, MoneyModule, SchedulerModule, RealtimeModule, NotificationModule],
   providers: [BetsService, LineService, StakingService, VerificationService, ResolutionService, DisputeService, CancellationService],
   controllers: [BetsController],
   exports: [BetsService],
