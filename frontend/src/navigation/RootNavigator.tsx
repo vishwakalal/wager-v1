@@ -3,41 +3,10 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuthContext } from "../auth/AuthContext";
 import { colors } from "../theme";
-import type { RootStackParamList, AuthStackParamList } from "./types";
+import type { RootStackParamList } from "./types";
 import { TabNavigator } from "./TabNavigator";
-import { LoginScreen } from "../screens/auth/LoginScreen";
-import { UsernameScreen } from "../screens/auth/UsernameScreen";
-import { PhoneVerifyScreen } from "../screens/auth/PhoneVerifyScreen";
 
 const Root = createNativeStackNavigator<RootStackParamList>();
-const AuthStack = createNativeStackNavigator<AuthStackParamList>();
-
-function AuthNavigator() {
-  const { state } = useAuthContext();
-  return (
-    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
-      {state === "needsUsername" ? (
-        <>
-          <AuthStack.Screen name="Username" component={UsernameScreen} />
-          <AuthStack.Screen name="PhoneVerify" component={PhoneVerifyScreen} />
-          <AuthStack.Screen name="Login" component={LoginScreen} />
-        </>
-      ) : state === "needsPhoneVerify" ? (
-        <>
-          <AuthStack.Screen name="PhoneVerify" component={PhoneVerifyScreen} />
-          <AuthStack.Screen name="Login" component={LoginScreen} />
-          <AuthStack.Screen name="Username" component={UsernameScreen} />
-        </>
-      ) : (
-        <>
-          <AuthStack.Screen name="Login" component={LoginScreen} />
-          <AuthStack.Screen name="Username" component={UsernameScreen} />
-          <AuthStack.Screen name="PhoneVerify" component={PhoneVerifyScreen} />
-        </>
-      )}
-    </AuthStack.Navigator>
-  );
-}
 
 export function RootNavigator() {
   const { state } = useAuthContext();
@@ -50,6 +19,11 @@ export function RootNavigator() {
       </View>
     );
   }
+
+  // AuthNavigator imports the Clerk-based LoginScreen; require it lazily so the
+  // dev-bypass path (which is always "ready") never evaluates @clerk/clerk-expo.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const AuthNavigator = state === "ready" ? null : require("./AuthNavigator").AuthNavigator;
 
   return (
     <Root.Navigator screenOptions={{ headerShown: false }}>

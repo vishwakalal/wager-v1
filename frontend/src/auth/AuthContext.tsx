@@ -1,10 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useAuth, useUser } from "@clerk/clerk-expo";
 import { authApi, type WagerUser } from "../api/client";
 
-type AuthState = "loading" | "notSignedIn" | "needsUsername" | "needsPhoneVerify" | "ready";
+export type AuthState =
+  | "loading"
+  | "notSignedIn"
+  | "needsUsername"
+  | "needsPhoneVerify"
+  | "ready";
 
-interface AuthContextValue {
+export interface AuthContextValue {
   state: AuthState;
   user: WagerUser | null;
   getToken: () => Promise<string | null>;
@@ -13,66 +17,47 @@ interface AuthContextValue {
   isLoaded: boolean;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+/**
+ * Shared auth context. The real (Clerk) provider lives in ./ClerkAuthProvider
+ * and is loaded only when the dev bypass is OFF, so this file stays free of any
+ * Clerk / expo-crypto imports and can be used by the dev path safely.
+ */
+export const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded: clerkLoaded, isSignedIn, getToken, signOut } = useAuth();
-  const { user: clerkUser } = useUser();
+/**
+ * Dev-only provider used when EXPO_PUBLIC_DEV_USER_ID is set. Bypasses Clerk
+ * entirely: it just fetches /auth/me (the API client attaches the x-user-id
+ * header) and reports "ready". Shares the same AuthContext so every screen's
+ * useAuthContext() works identically to the real (Clerk) provider.
+ */
+export function DevAuthProvider({ children }: { children: React.ReactNode }) {
   const [wagerUser, setWagerUser] = useState<WagerUser | null>(null);
   const [state, setState] = useState<AuthState>("loading");
 
   const fetchProfile = useCallback(async () => {
-    if (!isSignedIn) {
-      setWagerUser(null);
-      setState("notSignedIn");
-      return;
-    }
-    if (!clerkUser?.username && !clerkUser?.firstName) {
-      setState("needsUsername");
-      return;
-    }
     try {
-      const profile = await authApi.me(getToken);
+      const profile = await authApi.me(async () => null);
       setWagerUser(profile);
       setState("ready");
-    } catch (err: unknown) {
-      const status = err instanceof Error && err.message.includes("403") ? 403 : 0;
-      if (status === 403) {
-        if (!clerkUser?.username) {
-          setState("needsUsername");
-        } else {
-          setState("needsPhoneVerify");
-        }
-      } else {
-        setState("needsPhoneVerify");
-      }
+    } catch {
+      setWagerUser(null);
+      setState("notSignedIn");
     }
-  }, [isSignedIn, clerkUser, getToken]);
+  }, []);
 
   useEffect(() => {
-    if (!clerkLoaded) return;
     void fetchProfile();
-  }, [clerkLoaded, isSignedIn, fetchProfile]);
-
-  const refreshUser = useCallback(async () => {
-    await fetchProfile();
   }, [fetchProfile]);
-
-  const handleSignOut = useCallback(async () => {
-    await signOut();
-    setWagerUser(null);
-    setState("notSignedIn");
-  }, [signOut]);
 
   return (
     <AuthContext.Provider
       value={{
         state,
         user: wagerUser,
-        getToken,
-        signOut: handleSignOut,
-        refreshUser,
-        isLoaded: clerkLoaded,
+        getToken: async () => null,
+        signOut: async () => {},
+        refreshUser: fetchProfile,
+        isLoaded: true,
       }}
     >
       {children}

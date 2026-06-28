@@ -1,7 +1,7 @@
 import {
   ConnectedSocket,
   MessageBody,
-  OnGatewayAfterInit,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -17,7 +17,7 @@ import { RealtimeService } from "./realtime.service";
  *   bet:{id}     — bet-level events (status, odds, verification, disputes)
  */
 @WebSocketGateway({ cors: { origin: "*" } })
-export class RealtimeGateway implements OnGatewayAfterInit {
+export class RealtimeGateway implements OnGatewayInit {
   @WebSocketServer()
   server!: Server;
 

@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Global, Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
@@ -12,9 +12,11 @@ import { RedisService } from "../redis/redis.service";
 
 /**
  * Auth domain: Clerk JWT verification, phone OTP, account lifecycle.
- * Exports ClerkAuthGuard and PhoneVerifiedGuard so other modules can apply
- * them to their controllers without taking a full AuthModule dependency.
+ * Marked @Global so its exported guards (ClerkAuthGuard, PhoneVerifiedGuard)
+ * and AuthService are available to every feature module's controllers without
+ * each one importing AuthModule (which would create cycles via MoneyModule).
  */
+@Global()
 @Module({
   imports: [MoneyModule, RedisModule],
   controllers: [AuthController],

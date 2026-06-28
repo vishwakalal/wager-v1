@@ -1,124 +1,42 @@
+import { NavigationContainer, type LinkingOptions } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { API_BASE_URL } from "./src/config/api";
-import { colors } from "./src/theme";
-
-type HealthState =
-  | { kind: "loading" }
-  | { kind: "ok"; service: string; timestamp: string }
-  | { kind: "error"; message: string };
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { DevAuthProvider } from "./src/auth/AuthContext";
+import { IS_DEV_BYPASS } from "./src/config/dev";
+import { RootNavigator } from "./src/navigation/RootNavigator";
+import type { RootStackParamList } from "./src/navigation/types";
 
 /**
- * Phase 0 placeholder screen: confirms the mobile app renders with the design
- * tokens and can reach the NestJS API. Replaced by the 4-tab app in Phase 11.
+ * Deep-link config. `wager://` is the app scheme (app.json). Invite links of
+ * the form wager://join/{token} are also handled imperatively by useInviteLink,
+ * but registering the scheme here lets the app cold-start from a link.
  */
+const linking: LinkingOptions<RootStackParamList> = {
+  prefixes: ["wager://"],
+  config: { screens: {} },
+};
+
 export default function App() {
-  const [health, setHealth] = useState<HealthState>({ kind: "loading" });
+  // Dev bypass: skip Clerk and authenticate as EXPO_PUBLIC_DEV_USER_ID. Lets us
+  // run/iterate on screens without a Clerk account (see src/config/dev.ts).
+  //
+  // The real Clerk app lives in ./src/ClerkApp and is require()d lazily ONLY in
+  // the non-bypass branch, so its native deps (expo-crypto AES via Clerk's
+  // tokenCache, which isn't in Expo Go) never evaluate while bypassing.
+  if (IS_DEV_BYPASS) {
+    return (
+      <SafeAreaProvider>
+        <DevAuthProvider>
+          <NavigationContainer linking={linking}>
+            <RootNavigator />
+          </NavigationContainer>
+        </DevAuthProvider>
+        <StatusBar style="light" />
+      </SafeAreaProvider>
+    );
+  }
 
-  const checkHealth = useCallback(async () => {
-    setHealth({ kind: "loading" });
-    try {
-      const res = await fetch(`${API_BASE_URL}/health`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { service: string; timestamp: string };
-      setHealth({ kind: "ok", service: body.service, timestamp: body.timestamp });
-    } catch (err) {
-      setHealth({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    void checkHealth();
-  }, [checkHealth]);
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.brand}>Wager</Text>
-      <Text style={styles.subtitle}>social prediction markets for friends</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>API connection</Text>
-        {health.kind === "loading" && <ActivityIndicator color={colors.accent} />}
-        {health.kind === "ok" && (
-          <>
-            <Text style={styles.ok}>● connected</Text>
-            <Text style={styles.detail}>{health.service}</Text>
-          </>
-        )}
-        {health.kind === "error" && (
-          <>
-            <Text style={styles.error}>● unreachable</Text>
-            <Text style={styles.detail}>{health.message}</Text>
-            <Text style={styles.hint}>{API_BASE_URL}</Text>
-          </>
-        )}
-      </View>
-
-      <Pressable style={styles.button} onPress={() => void checkHealth()}>
-        <Text style={styles.buttonText}>Retry</Text>
-      </Pressable>
-
-      <StatusBar style="light" />
-    </View>
-  );
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ClerkApp = require("./src/ClerkApp").default;
+  return <ClerkApp />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  brand: {
-    color: colors.accent,
-    fontSize: 44,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 14,
-    marginTop: 4,
-    marginBottom: 40,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 20,
-    width: "100%",
-    maxWidth: 360,
-    alignItems: "center",
-    gap: 6,
-  },
-  cardLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  ok: { color: colors.statusActive, fontSize: 18, fontWeight: "700" },
-  error: { color: colors.statusDispute, fontSize: 18, fontWeight: "700" },
-  detail: { color: colors.text, fontSize: 14 },
-  hint: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  button: {
-    marginTop: 28,
-    backgroundColor: colors.accent,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 999,
-  },
-  buttonText: { color: colors.background, fontWeight: "700", fontSize: 16 },
-});

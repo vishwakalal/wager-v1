@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/api";
+import { DEV_USER_ID } from "../config/dev";
 
 export type GetToken = () => Promise<string | null>;
 
@@ -122,6 +123,7 @@ async function apiFetch<T>(
     ...(options.headers as Record<string, string>),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  else if (DEV_USER_ID) headers["x-user-id"] = DEV_USER_ID;
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   if (!res.ok) {

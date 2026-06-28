@@ -2,6 +2,14 @@ import { Injectable, Logger } from "@nestjs/common";
 import { StreamChat } from "stream-chat";
 import { ChatProvider, type ChatUserToken } from "./chat.provider";
 
+// stream-chat@9 types channel custom fields via the (empty) CustomChannelData
+// interface; declare the custom fields we set so ChannelData accepts them.
+declare module "stream-chat" {
+  interface CustomChannelData {
+    name?: string;
+  }
+}
+
 /** Production chat provider — wraps the Stream Chat server SDK. */
 @Injectable()
 export class StreamChatProvider extends ChatProvider {
