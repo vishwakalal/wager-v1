@@ -130,7 +130,11 @@ async function apiFetch<T>(
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message ?? `HTTP ${res.status}`);
   }
-  return res.json() as Promise<T>;
+  // Some endpoints (DELETE/leave, revoke, notifications) return an empty 200
+  // body. res.json() throws on empty input, so read text and parse only if
+  // there's something — void endpoints resolve to undefined.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const authApi = {
@@ -161,6 +165,8 @@ export const circlesApi = {
   get: (gt: GetToken, id: string) => apiFetch<CircleDetail>(`/circles/${id}`, gt),
   approve: (gt: GetToken, circleId: string, userId: string) =>
     apiFetch<CircleMember>(`/circles/${circleId}/members/${userId}/approve`, gt, { method: "POST" }),
+  leave: (gt: GetToken, circleId: string) =>
+    apiFetch<void>(`/circles/${circleId}/leave`, gt, { method: "DELETE" }),
   generateInviteLink: (gt: GetToken, circleId: string) =>
     apiFetch<{ url: string; expiresAt: string }>(`/circles/${circleId}/invite-link`, gt, { method: "POST" }),
   revokeInviteLink: (gt: GetToken, circleId: string) =>
