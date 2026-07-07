@@ -58,13 +58,28 @@ export interface Bet {
   };
 }
 
+export type BetSide = "over" | "under" | "yes" | "no";
+
+/**
+ * Pool sizes (cents) are always present; `odds` (implied payout multipliers)
+ * only appear once staking has closed and both sides have money. Shape mirrors
+ * the backend StakingService.getOdds response.
+ */
 export interface Odds {
-  yesOdds: number | null;
-  noOdds: number | null;
-  overOdds: number | null;
-  underOdds: number | null;
-  pot: number;
-  stakingEndsAt: string | null;
+  stakingOpen: boolean;
+  pools: Partial<Record<BetSide, number>>;
+  odds?: Partial<Record<BetSide, number>>;
+}
+
+export interface Stake {
+  id: string;
+  betId: string;
+  userId: string;
+  side: "OVER" | "UNDER" | "YES" | "NO";
+  amount: number;
+  effectiveAmount: number | null;
+  refundAmount: number | null;
+  createdAt: string;
 }
 
 export interface VerificationEvent {
@@ -184,8 +199,10 @@ export const betsApi = {
     apiFetch<unknown>(`/bets/${betId}/line`, gt, { method: "POST", body: JSON.stringify({ value }) }),
   disputeLine: (gt: GetToken, betId: string) =>
     apiFetch<unknown>(`/bets/${betId}/line/dispute`, gt, { method: "POST" }),
+  getMyStake: (gt: GetToken, betId: string) =>
+    apiFetch<Stake | null>(`/bets/${betId}/my-stake`, gt),
   stake: (gt: GetToken, betId: string, side: string, amount: number) =>
-    apiFetch<unknown>(`/bets/${betId}/stake`, gt, { method: "POST", body: JSON.stringify({ side, amount }) }),
+    apiFetch<Stake>(`/bets/${betId}/stake`, gt, { method: "POST", body: JSON.stringify({ side, amount }) }),
   listEvents: (gt: GetToken, betId: string) =>
     apiFetch<VerificationEvent[]>(`/bets/${betId}/events`, gt),
   submitEvent: (gt: GetToken, betId: string, description: string, numericValue?: number) =>
@@ -212,7 +229,8 @@ export const betsApi = {
 };
 
 export const walletApi = {
-  balance: (gt: GetToken) => apiFetch<Balance>("/wallet/balance", gt),
+  // Balance is GET /wallet (the controller's root @Get()), not /wallet/balance.
+  balance: (gt: GetToken) => apiFetch<Balance>("/wallet", gt),
 };
 
 export const notificationsApi = {
