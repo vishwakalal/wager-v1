@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { MIN_STAKE } from "@wager/shared";
@@ -60,9 +68,22 @@ function countdown(iso: string, nowMs: number): string {
   return "under a minute";
 }
 
+/** Cross-platform confirm: window.confirm on web, Alert on native. */
+function confirmAsync(title: string, message: string, confirmLabel: string): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+      { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
 export function BetDetailScreen({ route }: Props) {
   const { betId } = route.params;
-  const { getToken } = useAuthContext();
+  const { getToken, user } = useAuthContext();
 
   const [bet, setBet] = useState<Bet | null>(null);
   const [odds, setOdds] = useState<Odds | null>(null);
@@ -77,7 +98,12 @@ export function BetDetailScreen({ route }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Live clock for the countdown, ticking once a minute.
+  // Line-setting form
+  const [lineValue, setLineValue] = useState("");
+  const [lineBusy, setLineBusy] = useState(false);
+  const [lineError, setLineError] = useState<string | null>(null);
+
+  // Live clock for the countdowns, ticking every 30s.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000);
@@ -147,6 +173,61 @@ export function BetDetailScreen({ route }: Props) {
     }
   }, [side, amount, balance, getToken, betId, load]);
 
+  const submitLine = useCallback(async () => {
+    const value = Number.parseFloat(lineValue);
+    if (!Number.isFinite(value) || value < 0) {
+      setLineError("Enter a non-negative number");
+      return;
+    }
+    setLineBusy(true);
+    setLineError(null);
+    try {
+      await betsApi.submitLine(getToken, betId, value);
+      setLineValue("");
+      await load();
+    } catch (err) {
+      setLineError(err instanceof Error ? err.message : "Failed to submit line");
+    } finally {
+      setLineBusy(false);
+    }
+  }, [lineValue, getToken, betId, load]);
+
+  const revealLine = useCallback(async () => {
+    const ok = await confirmAsync(
+      "Reveal the line now?",
+      "The trimmed-mean line locks and a 30-minute challenge window opens for everyone else.",
+      "Reveal",
+    );
+    if (!ok) return;
+    setLineBusy(true);
+    try {
+      await betsApi.revealLine(getToken, betId);
+      await load();
+    } catch (err) {
+      Alert.alert("Couldn't reveal", err instanceof Error ? err.message : "Try again");
+    } finally {
+      setLineBusy(false);
+    }
+  }, [getToken, betId, load]);
+
+  const disputeLine = useCallback(async () => {
+    const ok = await confirmAsync(
+      "Dispute this line?",
+      "Your vote is final. If at least half of eligible members dispute, everyone re-submits a new line.",
+      "Dispute",
+    );
+    if (!ok) return;
+    setLineBusy(true);
+    try {
+      await betsApi.disputeLine(getToken, betId);
+      await load();
+    } catch (err) {
+      Alert.alert("Couldn't dispute", err instanceof Error ? err.message : "Try again");
+    } finally {
+      setLineBusy(false);
+    }
+  }, [getToken, betId, load]);
+
   if (bet === null && error === null) {
     return (
       <Screen>
@@ -166,7 +247,11 @@ export function BetDetailScreen({ route }: Props) {
   const pools = odds?.pools ?? {};
   const total = sides.reduce((sum, s) => sum + (pools[s.key] ?? 0), 0);
   const isStaking = bet.status === "STAKING";
-  const isLineSetting = bet.status === "LINE_SETTING" || bet.status === "LINE_CHALLENGE";
+  const isLineSetting = bet.status === "LINE_SETTING";
+  const isLineChallenge = bet.status === "LINE_CHALLENGE";
+  const inLinePhase = isLineSetting || isLineChallenge;
+  const isCreator = bet.creatorId === user?.id;
+  const meta = bet._meta;
 
   return (
     <Screen>
@@ -182,7 +267,7 @@ export function BetDetailScreen({ route }: Props) {
           <StatusPill status={bet.status} />
           <Muted>{bet.type === "BINARY" ? "Yes / No" : "Over / Under"}</Muted>
           {bet.type === "NUMERIC" && bet.line !== null ? (
-            <Muted>· Line {bet.line}</Muted>
+            <Muted>· Line {String(bet.line)}</Muted>
           ) : null}
         </View>
 
@@ -198,18 +283,73 @@ export function BetDetailScreen({ route }: Props) {
           </Card>
         ) : null}
 
-        {/* ── Line setting placeholder (built in pass 2) ─────────── */}
+        {/* ── Line setting (NUMERIC) ─────────────────────────────── */}
         {isLineSetting ? (
           <Card>
-            <Text style={styles.cardTitle}>Setting the line</Text>
+            <Text style={styles.cardTitle}>Set the line</Text>
             <Muted>
-              Members are blind-submitting their number. Once the line is revealed, staking opens.
+              Everyone submits a number privately. Once all submit (or the creator reveals), the
+              trimmed-mean line is set and staking opens.
             </Muted>
+            <Text style={styles.progress}>
+              {meta?.submissionCount ?? 0} of {meta?.eligibleCount ?? "—"} submitted
+            </Text>
+
+            {meta?.userHasSubmitted ? (
+              <Text style={styles.doneNote}>✓ You submitted your number. Waiting for others.</Text>
+            ) : (
+              <>
+                <Field
+                  label="Your number"
+                  value={lineValue}
+                  onChangeText={setLineValue}
+                  placeholder="e.g. 27.5"
+                  keyboardType="decimal-pad"
+                  editable={!lineBusy}
+                />
+                {lineError ? <Text style={styles.formError}>{lineError}</Text> : null}
+                <AppButton label="Submit line" onPress={submitLine} loading={lineBusy} />
+              </>
+            )}
+
+            {isCreator && (meta?.submissionCount ?? 0) > 0 ? (
+              <AppButton
+                label="Reveal line now"
+                variant="secondary"
+                onPress={revealLine}
+                loading={lineBusy}
+              />
+            ) : null}
           </Card>
         ) : null}
 
-        {/* ── Pools / odds ───────────────────────────────────────── */}
-        {!isLineSetting ? (
+        {/* ── Line challenge (NUMERIC) ───────────────────────────── */}
+        {isLineChallenge ? (
+          <Card>
+            <Text style={styles.cardTitle}>Line revealed</Text>
+            <Text style={styles.lineBig}>{String(bet.line ?? "—")}</Text>
+            {bet.challengeEndsAt ? (
+              <Muted>Challenge window closes in {countdown(bet.challengeEndsAt, now)}</Muted>
+            ) : null}
+            <Text style={styles.progress}>
+              {meta?.disputeCount ?? 0} of {meta?.eligibleCount ?? "—"} disputed · 50% forces a redo
+            </Text>
+            {meta?.userHasDisputed ? (
+              <Text style={styles.doneNote}>✓ You disputed this line.</Text>
+            ) : (
+              <AppButton
+                label="Dispute this line"
+                variant="danger"
+                onPress={disputeLine}
+                loading={lineBusy}
+              />
+            )}
+            <Muted>If fewer than half dispute, staking opens when the window closes.</Muted>
+          </Card>
+        ) : null}
+
+        {/* ── Pools / odds (once past the line phase) ────────────── */}
+        {!inLinePhase ? (
           <Card>
             <Text style={styles.cardTitle}>Pool · {formatCents(total)}</Text>
             {sides.map((s) => {
@@ -238,7 +378,7 @@ export function BetDetailScreen({ route }: Props) {
         ) : null}
 
         {/* ── Your position / stake form ─────────────────────────── */}
-        {myStake ? (
+        {inLinePhase ? null : myStake ? (
           <Card>
             <Text style={styles.cardTitle}>Your stake</Text>
             <View style={styles.yourStakeRow}>
@@ -303,6 +443,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.6,
+  },
+  progress: { color: colors.text, fontSize: 15, fontWeight: "600", marginTop: 4 },
+  doneNote: { color: colors.accent, fontSize: 15, fontWeight: "600", marginTop: 4 },
+  lineBig: {
+    color: colors.accent,
+    fontSize: 40,
+    fontWeight: "800",
+    letterSpacing: -1,
+    marginVertical: 4,
   },
   poolRow: { gap: 6, marginTop: 6 },
   poolHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

@@ -41,8 +41,10 @@ export interface Bet {
   duration: string;
   status: string;
   description: string;
-  line: number | null;
+  line: number | string | null;
   lineRound: number;
+  lineRevealedAt: string | null;
+  challengeEndsAt: string | null;
   stakingEndsAt: string | null;
   activeUntil: string | null;
   closedAt: string | null;
@@ -196,7 +198,9 @@ export const betsApi = {
   get: (gt: GetToken, betId: string) => apiFetch<Bet>(`/bets/${betId}`, gt),
   getOdds: (gt: GetToken, betId: string) => apiFetch<Odds>(`/bets/${betId}/odds`, gt),
   submitLine: (gt: GetToken, betId: string, value: number) =>
-    apiFetch<unknown>(`/bets/${betId}/line`, gt, { method: "POST", body: JSON.stringify({ value }) }),
+    apiFetch<unknown>(`/bets/${betId}/line/submit`, gt, { method: "POST", body: JSON.stringify({ value }) }),
+  revealLine: (gt: GetToken, betId: string) =>
+    apiFetch<Bet>(`/bets/${betId}/line/reveal`, gt, { method: "POST" }),
   disputeLine: (gt: GetToken, betId: string) =>
     apiFetch<unknown>(`/bets/${betId}/line/dispute`, gt, { method: "POST" }),
   getMyStake: (gt: GetToken, betId: string) =>
@@ -210,16 +214,16 @@ export const betsApi = {
       method: "POST",
       body: JSON.stringify({ description, ...(numericValue !== undefined ? { numericValue } : {}) }),
     }),
-  voteEvent: (gt: GetToken, betId: string, eventId: string, choice: string) =>
-    apiFetch<unknown>(`/bets/${betId}/events/${eventId}/vote`, gt, { method: "POST", body: JSON.stringify({ choice }) }),
-  tiebreakerVote: (gt: GetToken, betId: string, eventId: string, choice: string) =>
-    apiFetch<unknown>(`/bets/${betId}/events/${eventId}/tiebreaker`, gt, { method: "POST", body: JSON.stringify({ choice }) }),
+  voteEvent: (gt: GetToken, eventId: string, choice: string) =>
+    apiFetch<unknown>(`/events/${eventId}/vote`, gt, { method: "POST", body: JSON.stringify({ choice }) }),
+  tiebreakerVote: (gt: GetToken, eventId: string, choice: string) =>
+    apiFetch<unknown>(`/events/${eventId}/tiebreaker-vote`, gt, { method: "POST", body: JSON.stringify({ choice }) }),
   listDisputes: (gt: GetToken, betId: string) =>
     apiFetch<Dispute[]>(`/bets/${betId}/disputes`, gt),
   raiseDispute: (gt: GetToken, betId: string, payload: { type: string; description: string; targetEventId?: string }) =>
     apiFetch<Dispute>(`/bets/${betId}/disputes`, gt, { method: "POST", body: JSON.stringify(payload) }),
-  voteDispute: (gt: GetToken, betId: string, disputeId: string, inFavor: boolean) =>
-    apiFetch<unknown>(`/bets/${betId}/disputes/${disputeId}/vote`, gt, { method: "POST", body: JSON.stringify({ inFavor }) }),
+  voteDispute: (gt: GetToken, disputeId: string, inFavor: boolean) =>
+    apiFetch<unknown>(`/disputes/${disputeId}/vote`, gt, { method: "POST", body: JSON.stringify({ inFavor }) }),
   cancel: (gt: GetToken, betId: string) =>
     apiFetch<unknown>(`/bets/${betId}/cancel`, gt, { method: "POST" }),
   cancelVote: (gt: GetToken, betId: string) =>
