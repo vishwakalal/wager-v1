@@ -96,6 +96,9 @@ export interface VerificationEvent {
   _meta?: {
     verifyCount: number;
     denyCount: number;
+    /** Round-2 tallies — the live re-vote while status is TIEBREAKER. */
+    tiebreakerVerifyCount: number;
+    tiebreakerDenyCount: number;
     myVote: string | null;
     myTiebreakerVote: string | null;
   };

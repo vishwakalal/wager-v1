@@ -20,6 +20,7 @@ import {
   type BetSide,
   type Odds,
   type Stake,
+  type VerificationEvent,
 } from "../../api/client";
 import type { CirclesStackParamList } from "../../navigation/types";
 import { colors } from "../../theme";
@@ -52,6 +53,34 @@ function sidesFor(type: Bet["type"]): { key: BetSide; label: string }[] {
 
 function sideLabel(side: string): string {
   return side.charAt(0).toUpperCase() + side.slice(1).toLowerCase();
+}
+
+/** "VERIFY" | "DENY" → "Verify" | "Deny". */
+function voteLabel(choice: string): string {
+  return choice.charAt(0).toUpperCase() + choice.slice(1).toLowerCase();
+}
+
+/** Human label for a verification event status. */
+function prettyEventStatus(status: string): string {
+  switch (status) {
+    case "PENDING_VOTE":
+      return "Open for voting";
+    case "TIEBREAKER":
+      return "Tiebreaker";
+    case "VERIFIED":
+      return "Verified";
+    case "DENIED":
+      return "Denied";
+    default:
+      return status;
+  }
+}
+
+/** Accent for verified, dispute-red for denied, muted otherwise. */
+function eventStatusColor(status: string): string {
+  if (status === "VERIFIED") return colors.accent;
+  if (status === "DENIED") return colors.statusDispute;
+  return colors.textMuted;
 }
 
 /** "2h 14m" / "3d 4h" / "under a minute" from a future ISO timestamp. */
@@ -103,6 +132,17 @@ export function BetDetailScreen({ route }: Props) {
   const [lineBusy, setLineBusy] = useState(false);
   const [lineError, setLineError] = useState<string | null>(null);
 
+  // Verification
+  const [events, setEvents] = useState<VerificationEvent[] | null>(null);
+  // Distinguishes "the fetch failed" from "there genuinely are no events" — the
+  // two must not render the same way.
+  const [eventsFailed, setEventsFailed] = useState(false);
+  const [eventDesc, setEventDesc] = useState("");
+  const [eventValue, setEventValue] = useState("");
+  const [eventBusy, setEventBusy] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+  const [voteBusyId, setVoteBusyId] = useState<string | null>(null);
+
   // Live clock for the countdowns, ticking every 30s.
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -113,16 +153,20 @@ export function BetDetailScreen({ route }: Props) {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const [b, o, s, bal] = await Promise.all([
+      const [b, o, s, bal, ev] = await Promise.all([
         betsApi.get(getToken, betId),
         betsApi.getOdds(getToken, betId),
         betsApi.getMyStake(getToken, betId),
         walletApi.balance(getToken).catch(() => null),
+        betsApi.listEvents(getToken, betId).catch(() => null),
       ]);
       setBet(b);
       setOdds(o);
       setMyStake(s);
       setBalance(bal);
+      // A successful call always yields an array, so null means the fetch failed.
+      setEvents(ev);
+      setEventsFailed(ev === null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load bet");
     }
@@ -228,6 +272,50 @@ export function BetDetailScreen({ route }: Props) {
     }
   }, [getToken, betId, load]);
 
+  const submitEvent = useCallback(async () => {
+    if (!eventDesc.trim()) {
+      setEventError("Describe what happened");
+      return;
+    }
+    let numericValue: number | undefined;
+    if (bet?.type === "NUMERIC") {
+      const v = Number.parseFloat(eventValue);
+      if (!Number.isFinite(v)) {
+        setEventError("Enter the numeric result");
+        return;
+      }
+      numericValue = v;
+    }
+    setEventBusy(true);
+    setEventError(null);
+    try {
+      await betsApi.submitEvent(getToken, betId, eventDesc.trim(), numericValue);
+      setEventDesc("");
+      setEventValue("");
+      await load();
+    } catch (err) {
+      setEventError(err instanceof Error ? err.message : "Failed to submit event");
+    } finally {
+      setEventBusy(false);
+    }
+  }, [eventDesc, eventValue, bet?.type, getToken, betId, load]);
+
+  const voteEvent = useCallback(
+    async (eventId: string, choice: "verify" | "deny", tiebreaker: boolean) => {
+      setVoteBusyId(eventId);
+      try {
+        if (tiebreaker) await betsApi.tiebreakerVote(getToken, eventId, choice);
+        else await betsApi.voteEvent(getToken, eventId, choice);
+        await load();
+      } catch (err) {
+        Alert.alert("Couldn't vote", err instanceof Error ? err.message : "Try again");
+      } finally {
+        setVoteBusyId(null);
+      }
+    },
+    [getToken, load],
+  );
+
   if (bet === null && error === null) {
     return (
       <Screen>
@@ -247,6 +335,7 @@ export function BetDetailScreen({ route }: Props) {
   const pools = odds?.pools ?? {};
   const total = sides.reduce((sum, s) => sum + (pools[s.key] ?? 0), 0);
   const isStaking = bet.status === "STAKING";
+  const isActive = bet.status === "ACTIVE";
   const isLineSetting = bet.status === "LINE_SETTING";
   const isLineChallenge = bet.status === "LINE_CHALLENGE";
   const inLinePhase = isLineSetting || isLineChallenge;
@@ -426,6 +515,135 @@ export function BetDetailScreen({ route }: Props) {
             <Muted style={{ textAlign: "center" }}>You didn’t stake on this bet.</Muted>
           </Card>
         )}
+
+        {/* ── Verification (ACTIVE + resolved history) ───────────── */}
+        {isActive || (events && events.length > 0) ? (
+          <Card>
+            <Text style={styles.cardTitle}>Verification</Text>
+            <Muted>
+              Anyone staked can report what happened. Stakers vote to verify or deny — a majority
+              settles it.
+            </Muted>
+
+            {events && events.length > 0 ? (
+              events.map((ev) => {
+                const m = ev._meta;
+                const isPending = ev.status === "PENDING_VOTE";
+                const isTie = ev.status === "TIEBREAKER";
+                return (
+                  <View key={ev.id} style={styles.eventRow}>
+                    <View style={styles.eventHeaderRow}>
+                      <Text style={[styles.eventStatus, { color: eventStatusColor(ev.status) }]}>
+                        {prettyEventStatus(ev.status)}
+                      </Text>
+                      {ev.numericValue !== null ? (
+                        <Muted>Result {String(ev.numericValue)}</Muted>
+                      ) : null}
+                    </View>
+                    <Text style={styles.eventDesc}>{ev.description}</Text>
+                    {isTie ? (
+                      <>
+                        {/* Round-1 counts are the frozen tie; the re-vote is what's live. */}
+                        <Muted>
+                          Re-vote: {m?.tiebreakerVerifyCount ?? 0} verify ·{" "}
+                          {m?.tiebreakerDenyCount ?? 0} deny
+                        </Muted>
+                        <Muted>
+                          Tied {m?.verifyCount ?? 0}–{m?.denyCount ?? 0} in the first round
+                        </Muted>
+                      </>
+                    ) : (
+                      <Muted>
+                        {m?.verifyCount ?? 0} verify · {m?.denyCount ?? 0} deny
+                      </Muted>
+                    )}
+
+                    {isTie && ev.tiebreakerEndsAt ? (
+                      <Muted>Re-vote closes in {countdown(ev.tiebreakerEndsAt, now)}</Muted>
+                    ) : null}
+
+                    {myStake && isPending ? (
+                      m?.myVote ? (
+                        <Text style={styles.doneNote}>✓ You voted {voteLabel(m.myVote)}</Text>
+                      ) : (
+                        <View style={styles.voteButtons}>
+                          <View style={styles.voteBtn}>
+                            <AppButton
+                              label="Verify"
+                              onPress={() => voteEvent(ev.id, "verify", false)}
+                              loading={voteBusyId === ev.id}
+                            />
+                          </View>
+                          <View style={styles.voteBtn}>
+                            <AppButton
+                              label="Deny"
+                              variant="danger"
+                              onPress={() => voteEvent(ev.id, "deny", false)}
+                              loading={voteBusyId === ev.id}
+                            />
+                          </View>
+                        </View>
+                      )
+                    ) : null}
+
+                    {myStake && isTie ? (
+                      <View style={styles.voteButtons}>
+                        <View style={styles.voteBtn}>
+                          <AppButton
+                            label={m?.myTiebreakerVote === "VERIFY" ? "✓ Verify" : "Verify"}
+                            variant={m?.myTiebreakerVote === "VERIFY" ? "primary" : "secondary"}
+                            onPress={() => voteEvent(ev.id, "verify", true)}
+                            loading={voteBusyId === ev.id}
+                          />
+                        </View>
+                        <View style={styles.voteBtn}>
+                          <AppButton
+                            label={m?.myTiebreakerVote === "DENY" ? "✓ Deny" : "Deny"}
+                            variant={m?.myTiebreakerVote === "DENY" ? "danger" : "secondary"}
+                            onPress={() => voteEvent(ev.id, "deny", true)}
+                            loading={voteBusyId === ev.id}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : eventsFailed ? (
+              <Text style={[styles.formError, styles.noEvents]}>
+                Couldn’t load events. Pull down to refresh.
+              </Text>
+            ) : (
+              <Muted style={styles.noEvents}>No events reported yet.</Muted>
+            )}
+
+            {isActive && myStake ? (
+              <View style={styles.eventForm}>
+                <Field
+                  label="Report an outcome"
+                  value={eventDesc}
+                  onChangeText={setEventDesc}
+                  placeholder="e.g. Final score was 112–108"
+                  editable={!eventBusy}
+                />
+                {bet.type === "NUMERIC" ? (
+                  <Field
+                    label="Actual result"
+                    value={eventValue}
+                    onChangeText={setEventValue}
+                    placeholder="e.g. 31"
+                    keyboardType="decimal-pad"
+                    editable={!eventBusy}
+                  />
+                ) : null}
+                {eventError ? <Text style={styles.formError}>{eventError}</Text> : null}
+                <AppButton label="Submit for verification" onPress={submitEvent} loading={eventBusy} />
+              </View>
+            ) : isActive && !myStake ? (
+              <Muted style={styles.noEvents}>Only staked members can report outcomes.</Muted>
+            ) : null}
+          </Card>
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -485,4 +703,18 @@ const styles = StyleSheet.create({
   },
   sideOptionSelected: { borderColor: colors.accent, color: colors.accent },
   formError: { color: colors.statusDispute, fontSize: 14 },
+  eventRow: {
+    gap: 4,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.background,
+  },
+  eventHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  eventStatus: { fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
+  eventDesc: { color: colors.text, fontSize: 16, fontWeight: "600", lineHeight: 22 },
+  voteButtons: { flexDirection: "row", gap: 10, marginTop: 8 },
+  voteBtn: { flex: 1 },
+  eventForm: { gap: 10, marginTop: 16 },
+  noEvents: { marginTop: 8 },
 });
