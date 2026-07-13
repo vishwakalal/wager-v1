@@ -107,12 +107,27 @@ export class VerificationService implements OnModuleInit {
 
     return Promise.all(
       events.map(async (ev) => {
-        const [verifyCount, denyCount, myVote, myTiebreakerVote] = await Promise.all([
+        const [
+          verifyCount,
+          denyCount,
+          tiebreakerVerifyCount,
+          tiebreakerDenyCount,
+          myVote,
+          myTiebreakerVote,
+        ] = await Promise.all([
           this.prisma.verificationVote.count({
             where: { verificationEventId: ev.id, round: 1, choice: VoteChoice.VERIFY },
           }),
           this.prisma.verificationVote.count({
             where: { verificationEventId: ev.id, round: 1, choice: VoteChoice.DENY },
+          }),
+          // Round-2 tallies: during a TIEBREAKER the round-1 counts are the frozen
+          // tied vote, so callers need these to show the live re-vote (spec §6.2).
+          this.prisma.verificationVote.count({
+            where: { verificationEventId: ev.id, round: 2, choice: VoteChoice.VERIFY },
+          }),
+          this.prisma.verificationVote.count({
+            where: { verificationEventId: ev.id, round: 2, choice: VoteChoice.DENY },
           }),
           this.prisma.verificationVote.findUnique({
             where: { verificationEventId_userId_round: { verificationEventId: ev.id, userId, round: 1 } },
@@ -129,6 +144,8 @@ export class VerificationService implements OnModuleInit {
           _meta: {
             verifyCount,
             denyCount,
+            tiebreakerVerifyCount,
+            tiebreakerDenyCount,
             myVote: myVote?.choice ?? null,
             myTiebreakerVote: myTiebreakerVote?.choice ?? null,
           },
@@ -234,8 +251,22 @@ export class VerificationService implements OnModuleInit {
     const verifyRatio = verifyCount / stakerCount;
     const denyRatio   = denyCount   / stakerCount;
     const totalVoted  = verifyCount + denyCount;
+    const remaining   = stakerCount - totalVoted;
+    const allVoted    = remaining === 0;
 
-    if (verifyRatio >= VERIFY_THRESHOLD && denyRatio < VERIFY_THRESHOLD) {
+    // Best case each side could still reach if every remaining staker backed it.
+    const maxVerifyRatio = (verifyCount + remaining) / stakerCount;
+    const maxDenyRatio   = (denyCount   + remaining) / stakerCount;
+
+    // Settle early only once the result can no longer change — one side has hit
+    // the threshold AND the other can no longer reach it. Settling the instant a
+    // side merely touches 50% would make the 50/50 tie (spec §6.2) unreachable:
+    // the vote that creates the tie is always preceded by a one-vote lead, which
+    // would have already resolved the event.
+    const verifyDecided = verifyRatio >= VERIFY_THRESHOLD && maxDenyRatio   < VERIFY_THRESHOLD;
+    const denyDecided   = denyRatio   >= VERIFY_THRESHOLD && maxVerifyRatio < VERIFY_THRESHOLD;
+
+    if (verifyDecided || (allVoted && verifyCount > denyCount)) {
       await this.prisma.verificationEvent.update({
         where: { id: event.id },
         data: { status: VerificationStatus.VERIFIED },
@@ -250,7 +281,7 @@ export class VerificationService implements OnModuleInit {
       return { outcome: "verified" as const };
     }
 
-    if (denyRatio >= VERIFY_THRESHOLD && verifyRatio < VERIFY_THRESHOLD) {
+    if (denyDecided || (allVoted && denyCount > verifyCount)) {
       await this.prisma.verificationEvent.update({
         where: { id: event.id },
         data: { status: VerificationStatus.DENIED },
@@ -266,7 +297,7 @@ export class VerificationService implements OnModuleInit {
     }
 
     // 50/50 tie: all stakers have voted and it's exactly split
-    if (totalVoted === stakerCount && verifyCount === denyCount) {
+    if (allVoted && verifyCount === denyCount) {
       const tiebreakerEndsAt = new Date(Date.now() + TIEBREAKER_REVOTE_WINDOW_MS);
       await this.prisma.verificationEvent.update({
         where: { id: event.id },
@@ -305,7 +336,11 @@ export class VerificationService implements OnModuleInit {
     const verifyRatio = verifyCount / stakerCount;
     const denyRatio   = denyCount   / stakerCount;
 
-    if (verifyRatio > denyRatio && verifyRatio >= VERIFY_THRESHOLD) {
+    // Round-2 votes are changeable until the window closes, so only settle on a
+    // strict majority of all stakers — a side sitting on exactly 50% can still be
+    // pulled back into a tie. Anything short of that rides out the window and is
+    // settled by resolveExpiredTiebreaker (majority of votes cast; tie → DENIED).
+    if (verifyRatio > VERIFY_THRESHOLD) {
       await this.prisma.verificationEvent.update({
         where: { id: event.id },
         data: { status: VerificationStatus.VERIFIED },
@@ -313,7 +348,7 @@ export class VerificationService implements OnModuleInit {
       return { outcome: "verified" as const };
     }
 
-    if (denyRatio > verifyRatio && denyRatio >= VERIFY_THRESHOLD) {
+    if (denyRatio > VERIFY_THRESHOLD) {
       await this.prisma.verificationEvent.update({
         where: { id: event.id },
         data: { status: VerificationStatus.DENIED },
